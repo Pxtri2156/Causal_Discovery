@@ -1,0 +1,12 @@
+
+ScalableDAG_v1_1: 
+    + n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
+    + {'fdr': 0.14285714285714285, 'tpr': 0.6666666666666666, 'fpr': 1.0, 'shd': 3, 'nnz': 7}ScalableDAG_v1_2: 
+
+ScalableDAG_v1_2: 
+    + n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
+    + {'fdr': 0.2, 'tpr': 0.4444444444444444, 'fpr': 1.0, 'shd': 5, 'nnz': 5}
+
+ScalableDAG_v1_3: 
+    + n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
+    + {'fdr': 0.16666666666666666, 'tpr': 0.5555555555555556, 'fpr': 1.0, 'shd': 4, 'nnz': 6}

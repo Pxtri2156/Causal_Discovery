@@ -1,0 +1,12 @@
+python src/main.py  --seed 1 \
+                    --n 3536 \
+                    --d 9 \
+                    --graph_type ER \
+                    --degree 4 \
+                    --noise_type gaussian_ev \
+                    --equal_variances \
+                    --lambda_1 2e-2 \
+                    --lambda_2 5.0 \
+                    --checkpoint_iter 5000 \
+                    --training_path /dataset/Bayesian_Data/SPORTS/SPORTS_real.CSV \
+                    --gt_path /dataset/Bayesian_Data/SPORTS/DAGtrue_SPORTS_bi.csv 

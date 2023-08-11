@@ -1,0 +1,54 @@
+-----------------------------------------
+random seed: 2
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.1, 'tpr': 1.0, 'fpr': 1.0, 'shd': 1, 'nnz': 10}
+
+-----------------------------------------
+random seed: 3
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.1111111111111111, 'tpr': 0.8888888888888888, 'fpr': 1.0, 'shd': 2, 'nnz': 9}
+
+-----------------------------------------
+random seed: 5
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.1, 'tpr': 1.0, 'fpr': 1.0, 'shd': 1, 'nnz': 10}
+
+-----------------------------------------
+random seed: 6
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.2, 'tpr': 0.8888888888888888, 'fpr': 2.0, 'shd': 2, 'nnz': 10}
+
+-----------------------------------------
+random seed: 9
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.0, 'tpr': 1.0, 'fpr': 0.0, 'shd': 0, 'nnz': 9}
+
+-----------------------------------------
+random seed: 15
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.1, 'tpr': 1.0, 'fpr': 1.0, 'shd': 1, 'nnz': 10}
+
+-----------------------------------------
+random seed: 19
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.0, 'tpr': 1.0, 'fpr': 0.0, 'shd': 0, 'nnz': 9}
+
+-----------------------------------------
+random seed: 28
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.25, 'tpr': 0.6666666666666666, 'fpr': 2.0, 'shd': 3, 'nnz': 8}
+
+-----------------------------------------
+random seed: 2000
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.125, 'tpr': 0.7777777777777778, 'fpr': 1.0, 'shd': 2, 'nnz': 8}
+
+-----------------------------------------
+random seed: 2001
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.2222222222222222, 'tpr': 0.7777777777777778, 'fpr': 2.0, 'shd': 3, 'nnz': 9}
+
+-----------------------------------------
+random seed: 123
+<class 'torch.nn.modules.container.ModuleList'>
+{'fdr': 0.2222222222222222, 'tpr': 0.7777777777777778, 'fpr': 2.0, 'shd': 3, 'nnz': 9}

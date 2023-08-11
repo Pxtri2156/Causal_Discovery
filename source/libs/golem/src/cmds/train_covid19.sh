@@ -1,0 +1,12 @@
+python src/main.py  --seed 1 \
+                    --n 866 \
+                    --d 17 \
+                    --graph_type ER \
+                    --degree 4 \
+                    --noise_type gaussian_ev \
+                    --equal_variances \
+                    --lambda_1 2e-2 \
+                    --lambda_2 5.0 \
+                    --checkpoint_iter 5000 \
+                    --training_path /dataset/Bayesian_Data/COVID_19/COVID_19_real_continuous.csv \
+                    --gt_path /dataset/Bayesian_Data/COVID_19/DAGtrue_COVID_19_bi.csv 

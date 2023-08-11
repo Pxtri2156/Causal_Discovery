@@ -1,0 +1,48 @@
+
+ALGORITHM:
+  NAME: "DAG-GNN"
+  DATA_VARIABLE_SIZE: 10  # the number of variables in synthetic generated data
+  EDGE_TYPES: 2  # The number of edge types to infer.
+  X_DIMS: 1  # The number of input dimensions: default 1.
+  Z_DIMS: 1  # The number of latent variable dimensions: default the same as variable size.
+  OPTIMIZER: 'Adam'  # the choice of optimizer used
+  GRAPH_THRESHOLD: 0.3  # threshold for learned adjacency matrix binarization
+  TAU_A: 0.0  # coefficient for L-1 norm of A.
+  LAMBDA_A: 0.0  # coefficient for DAG constraint h(A).
+  C_A: 1  # coefficient for absolute value h(A).
+  USE_A_CONNECT_LOSS: 0  # flag to use A connect loss
+  USE_A_POSITIVER_LOSS: 0  # flag to enforce A must have positive values
+  NO_CUDA: False  # Disables CUDA training.
+  SEED: 42  # Random seed.
+  EPOCHS: 300  # Number of epochs to train.
+  BATCH_SIZE: 100  # Number of samples per batch.
+  LR: 0.003  # Initial learning rate.
+  ENCODER_HIDDEN: 64  # Number of hidden units.
+  DECODER_HIDDEN: 64  # Number of hidden units.
+  TEMP: 0.5  # Temperature for Gumbel softmax.
+  K_MAX_ITER: 100  # the max iteration number for searching lambda and c
+  ENCODER: 'mlp'  # Type of path encoder model (mlp, or sem).
+  DECODER: 'mlp'  # Type of decoder model (mlp, or sim).
+  NO_FACTOR: False  # Disables factor graph model.
+  SUFFIX: '_springs5'  # Suffix for training data (e.g. "_charged").
+  ENCODER_DROPOUT: 0.0  # Dropout rate (1 - keep probability).
+  DECODER_DROPOUT: 0.0  # Dropout rate (1 - keep probability).
+  SAVE_FOLDER: 'logs'  # Where to save the trained model, leave empty to not save anything.
+  LOAD_FOLDER: ''  # Where to load the trained model if finetuning. Leave empty to train from scratch
+  H_TOL: 1e-8  # the tolerance of error of h(A) to zero
+  PREDICTION_STEPS: 10  # Num steps to predict before re-using teacher forcing.
+  LR_DECAY: 200  # After how epochs to decay LR by a factor of gamma.
+  GAMMA: 1.0  # LR decay factor.
+  SKIP_FIRST: False  # Skip first edge type in decoder, i.e. it represents no-edge.
+  VAR: 5e-5  # Output variance.
+  HARD: False  # Uses discrete samples in training forward pass.
+  PRIOR: False  # Whether to use sparsity prior.
+  DYNAMIC_GRAPH: False  # Whether test with dynamically re-computed graph.
+
+THRESOLDING: 0.3 
+DATASET:
+  NAME: "default"
+  DATA_PATH: "/dataset/Bayesian_Data/ASIA/ASIA_DATA.csv"
+  GT_PATH: "/dataset/Bayesian_Data/ASIA/DAGtrue_ASIA_bi.csv" 
+RESULT_PATH: '/workspace/causal_discovery/results/dag_gnn/ASIA_W_est.xls'
+

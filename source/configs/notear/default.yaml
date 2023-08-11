@@ -1,0 +1,13 @@
+
+ALGORITHM:
+  NAME: "NOTEAR"
+  LAMPDA_1: 0.1
+  LOSS: 'l2'
+THRESOLDING: 0.3 
+
+DATASET:
+  NAME: "default"
+  DATA_PATH: "/dataset/Bayesian_Data/ASIA/ASIA_DATA.csv"
+  GT_PATH: "/dataset/Bayesian_Data/ASIA/DAGtrue_ASIA_bi.csv" 
+RESULT_PATH: '/workspace/tripx/projects/causality/notears/W_est.xls'
+

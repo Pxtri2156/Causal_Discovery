@@ -1,0 +1,54 @@
+[INFO] Loading dataset
+X numpy:  [[0 0 0 ... 0 0 0]
+ [1 0 1 ... 0 1 0]
+ [0 1 0 ... 0 0 0]
+ ...
+ [1 2 0 ... 0 0 1]
+ [0 0 0 ... 0 1 0]
+ [0 0 0 ... 0 0 0]]
+[INFO] Loading ground truth 
+[INFO] Loading dataset
+X numpy:  [[0 0 0 ... 0 0 0]
+ [0 0 1 ... 0 0 0]
+ [0 0 1 ... 0 0 1]
+ ...
+ [0 0 0 ... 0 0 0]
+ [0 0 1 ... 0 0 1]
+ [0 0 0 ... 0 0 0]]
+[INFO] Loading ground truth 
+[INFO] Loading dataset
+X numpy:  [[0 0 0 ... 0 0 0]
+ [0 1 1 ... 1 0 0]
+ [0 1 2 ... 2 1 0]
+ ...
+ [0 1 2 ... 1 0 0]
+ [0 1 1 ... 0 0 0]
+ [0 1 2 ... 1 1 0]]
+[INFO] Loading ground truth 
+[INFO] Loading dataset
+X numpy:  [[0 0 0 ... 0 0 0]
+ [0 0 1 ... 0 0 0]
+ [0 0 0 ... 0 1 0]
+ ...
+ [3 1 0 ... 0 0 1]
+ [2 0 1 ... 0 2 1]
+ [0 0 0 ... 0 0 1]]
+[INFO] Loading ground truth 
+[INFO] Loading dataset
+X numpy:  [[0 0 0 ... 0 0 0]
+ [1 1 1 ... 1 1 1]
+ [1 1 0 ... 2 2 1]
+ ...
+ [2 2 2 ... 0 2 1]
+ [0 1 0 ... 1 1 1]
+ [0 1 0 ... 0 2 0]]
+[INFO] Loading ground truth 
+[INFO] Loading dataset
+X numpy:  [[ 0  0  0 ...  0 -1  0]
+ [ 1  0  0 ...  0  0  1]
+ [ 2  0  1 ... -1  0  0]
+ ...
+ [ 7  0  0 ...  1  0  0]
+ [10  0  1 ... -1  0  0]
+ [35  0  1 ... -1 -1  0]]
+[INFO] Loading ground truth 
