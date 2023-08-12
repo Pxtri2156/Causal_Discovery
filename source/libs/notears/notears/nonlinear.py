@@ -1,10 +1,11 @@
-from notears.locally_connected import LocallyConnected
-from notears.lbfgsb_scipy import LBFGSBScipy
-from notears.trace_expm import trace_expm
+from libs.notears.notears.locally_connected import LocallyConnected
+from libs.notears.notears.lbfgsb_scipy import LBFGSBScipy
+from libs.notears.notears.trace_expm import trace_expm
 import torch
 import torch.nn as nn
 import numpy as np
 import math
+# sys.path.append("./")
 
 
 class NotearsMLP(nn.Module):

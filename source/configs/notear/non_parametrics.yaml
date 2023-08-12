@@ -1,0 +1,23 @@
+
+ALGORITHM:
+  NAME: "Non_parametric"
+  LAMPDA_1: 0.01
+  LAMPDA_2: 0.01  
+  LOSS: 'l2'
+MODEL:
+  d: 5
+  dims: [5, 10, 1]
+  bias: True
+THRESOLDING: 0.3 
+
+DATASET:
+  NAME: "synthetic"
+  N: 200
+  d: 5
+  s0: 9
+  graph_type: 'ER'
+  sem_type: 'mim'
+  DATA_PATH: "/workspace/causal_discovery/results/non_parametrics/X.csv"
+  GT_PATH: "/workspace/causal_discovery/results/non_parametrics/W_true.csv'" 
+RESULT_PATH: '/workspace/causal_discovery/results/non_parametrics/W_est.csv'
+
