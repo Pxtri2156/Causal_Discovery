@@ -1,6 +1,15 @@
-from libs.notears.notears.locally_connected import LocallyConnected
-from libs.notears.notears.lbfgsb_scipy import LBFGSBScipy
-from libs.notears.notears.trace_expm import trace_expm
+import  sys
+from tqdm import tqdm
+try:
+    from libs.notears.notears.locally_connected import LocallyConnected
+    from libs.notears.notears.lbfgsb_scipy import LBFGSBScipy
+    from libs.notears.notears.trace_expm import trace_expm
+except:
+    sys.path.append("./")
+    from notears.locally_connected import LocallyConnected
+    from notears.lbfgsb_scipy import LBFGSBScipy
+    from notears.trace_expm import trace_expm
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -14,6 +23,9 @@ class NotearsMLP(nn.Module):
         assert len(dims) >= 2
         assert dims[-1] == 1
         d = dims[0]
+        print("d ", d)
+        print("dims ", dims)
+        print("bias: ", bias)
         self.dims = dims
         # fc1: variable splitting for l1
         self.fc1_pos = nn.Linear(d, d * dims[1], bias=bias)
@@ -40,6 +52,7 @@ class NotearsMLP(nn.Module):
         return bounds
 
     def forward(self, x):  # [n, d] -> [n, d]
+        print("type: ", x.type())
         x = self.fc1_pos(x) - self.fc1_neg(x)  # [n, d * m1]
         x = x.view(-1, self.dims[0], self.dims[1])  # [n, d, m1]
         for fc in self.fc2:
@@ -220,9 +233,13 @@ def main():
 
     n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
     B_true = ut.simulate_dag(d, s0, graph_type)
+    print("B true: ", B_true.shape)
+    print("B true: ", B_true[0])
     np.savetxt('W_true.csv', B_true, delimiter=',')
 
     X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
+    print("X: ", X.shape)
+    print("X: ", X[0])
     np.savetxt('X.csv', X, delimiter=',')
 
     model = NotearsMLP(dims=[d, 10, 1], bias=True)

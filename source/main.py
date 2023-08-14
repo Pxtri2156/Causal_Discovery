@@ -46,7 +46,8 @@ class DAG_Agorithm:
         elif self.name == "Non_parametric":
             print("Running Non Parametric")
             model = NotearsMLP(self.configs.MODEL['dims'], self.configs.MODEL['bias'])
-            W_est = notears_nonlinear(model, self.X, self.configs.ALGORITHM['LAMPDA_1'], self.configs.ALGORITHM['LAMPDA_2'])
+            W_est = notears_nonlinear(model, self.X, self.configs.ALGORITHM['LAMPDA_1'], \
+                self.configs.ALGORITHM['LAMPDA_2'])
         else:
             raise Exception ("Algorithm haven't defined or wrong name")
         return W_est
@@ -66,8 +67,11 @@ def main(configs):
         data = DataLoader(configs)
         X, gt = data.gen_data()
         
-    print("X: ", X)
-    print("Ground Truth: ", gt)
+    print("X: ", X.shape)
+    print("X[0]: ", X[0])
+    # print("Type X: ", type(X))
+    print("Ground Truth: \n", gt.shape)
+    print("gt[0]: ", gt)
     # Preprocessing 
 
     # Algorithms 

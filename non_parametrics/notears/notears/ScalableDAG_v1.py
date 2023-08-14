@@ -3,6 +3,7 @@ import  sys
 from tqdm import tqdm
 
 sys.path.append("./")
+sys.path.append("/workspace/causal_discovery/non_parametrics/notears/notears")
 
 from notears.locally_connected import LocallyConnected
 from notears.lbfgsb_scipy import LBFGSBScipy
@@ -13,6 +14,13 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
+
+import notears.utils as ut
+from notears.visualize import Visualization
+from notears.orthogonality import latin_hyper, orthogonality
+from notears.log import Logging
+import random
+
 
 class ScalableDAG_v1_1(nn.Module): # Based on NotearsSobolev and non Mask
     
@@ -334,7 +342,7 @@ class ScalableDAG_v1_4(nn.Module):
             x_phi = fc3_iter(x_phi) # [n, 1]
             # print('x of forward: ', x.shape)
             last_x[:,j] = x_phi[:, 0]
-        return x
+        return last_x
 
     def get_fc1_weight(self):
         fc1_weight = torch.empty((self.d*self.dims[1], self.d))
@@ -360,7 +368,10 @@ class ScalableDAG_v1_4(nn.Module):
         fc1_weight = fc1_weight.view(self.d, -1, self.d)  # [d, m1, d]
         # print("h fc1_weight: ", fc1_weight.shape)
         A = torch.sum(fc1_weight * fc1_weight, dim=1).t()  # [d, d]
+        # print("A: ", A)
+        # print('trace_expm(A):', trace_expm(A))
         h = trace_expm(A) - self.d  # (Zheng et al. 2018)
+        # print("h_func: ", h.item())
         return h
 
     def l2_reg(self):
@@ -451,6 +462,7 @@ class ScalableDAG_v1(nn.Module):
         # print("h fc1_weight: ", fc1_weight.shape)
         A = torch.sum(fc1_weight * fc1_weight, dim=1).t()  # [i, j]
         h = trace_expm(A) - d  # (Zheng et al. 2018)
+        print("h_func: ", h)
         return h
 
     def l2_reg(self):
@@ -494,12 +506,14 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
     # input("Hi")
     optimizer = LBFGSBScipy(model.parameters())
     X_torch = torch.from_numpy(X)
+    primal_obj = 0.0
+    loss = 0.0
+    h_val = 0.0
     while rho < rho_max:
         def closure():
             optimizer.zero_grad()
             X_hat = model(X_torch)
             # print("X_hat: ", X_hat.shape)
-            print("X_hat: ", X_hat.shape)
             loss = squared_loss(X_hat, X_torch)
             h_val = model.h_func()
             penalty = 0.5 * rho * h_val * h_val + alpha * h_val
@@ -507,6 +521,7 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
             l1_reg = lambda1 * model.fc1_l1_reg()
             primal_obj = loss + penalty + l2_reg + l1_reg
             primal_obj.backward()
+            # print('primal_obj: ', primal_obj.item())
             return primal_obj
         
         optimizer.step(closure)  # NOTE: updates model in-place
@@ -517,11 +532,11 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
         else:
             break
     alpha += rho * h_new
-    return rho, alpha, h_new
+    return rho, alpha, h_new, primal_obj, loss, h_val
 
 
 def scalable_dag_v1(model: nn.Module,
-                      X: np.ndarray,
+                      X: np.ndarray, log,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
                       max_iter: int = 100,
@@ -530,13 +545,23 @@ def scalable_dag_v1(model: nn.Module,
                       w_threshold: float = 0.3):
     rho, alpha, h = 1.0, 0.0, np.inf
     for _ in tqdm(range(max_iter)):
-        rho, alpha, h = dual_ascent_step(model, X, lambda1, lambda2,
+        print(f"{'='*30} Iter {_} {'='*30}")
+        rho, alpha, h, obj_func, loss, h_val = dual_ascent_step(model, X, lambda1, lambda2,
                                          rho, alpha, h, rho_max)
+        num_epoch = _
+
+        ortho = 0
+        acc={'fdr':0, "fpr":0, 'tpr':0, 'shd':0}
+        log.step_update(log.log['random_seed'][-1], obj_func, loss, ortho, h_val, acc)
+        
         if h <= h_tol or rho >= rho_max:
             print(h)
             print(rho)
             print("hú")
             break
+        
+        
+    log.log['num_epoch'][log.log['random_seed'][-1]] = num_epoch + 1 
     W_est = model.fc1_to_adj() # convert the matrix
     W_est[np.abs(W_est) < w_threshold] = 0
     return W_est
@@ -549,26 +574,44 @@ def main():
     import notears.utils as ut
     ut.set_random_seed(1234)
 
-    n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
-    B_true = ut.simulate_dag(d, s0, graph_type)
-    np.savetxt('ScalableDAG_v1/W_true.csv', B_true, delimiter=',')
+    #LOGGING ----
+    name = 'Scalable_v1'
+    log = Logging(name)
+    #AVERAG ---- 
+    for r in [15]: #[2,3,5,6,9,15,19,28,2000,2001]
 
-    X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-    np.savetxt('ScalableDAG_v1/X.csv', X, delimiter=',')
+    #LOGGING----
+        log.random_seed_update(r)
+        
+        n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
+        B_true = ut.simulate_dag(d, s0, graph_type)
+        np.savetxt('ScalableDAG_v1/W_true.csv', B_true, delimiter=',')
 
-    # model = ScalableDAG_v1_1(dims=[d, 10, d], d=d, k=10, bias=True)
-    # model = ScalableDAG_v1_2(dims=[d, 10, 1], d=d, k=6, bias=True)
-    # model = ScalableDAG_v1_3(dims=[d-1, 10, 1], d=d, k=6, bias=True)
-    # model = ScalableDAG_v1(dims=[d, 10, 1], k=6, bias=True)
-    model = ScalableDAG_v1_4(dims=[d, 10, 8, 1], d=5, k=6, bias=True)
+        X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
+        np.savetxt('ScalableDAG_v1/X.csv', X, delimiter=',')
 
-    W_est = scalable_dag_v1(model, X, lambda1=0.01, lambda2=0.01)
-    # print(W_est)
-    assert ut.is_dag(W_est)
-    np.savetxt('ScalableDAG_v1/W_est.csv', W_est, delimiter=',')
-    acc = ut.count_accuracy(B_true, W_est != 0)
-    print(acc)
+        # model = ScalableDAG_v1_1(dims=[d, 10, d], d=d, k=10, bias=True)
+        # model = ScalableDAG_v1_2(dims=[d, 10, 1], d=d, k=6, bias=True)
+        # model = ScalableDAG_v1_3(dims=[d-1, 10, 1], d=d, k=6, bias=True)
+        # model = ScalableDAG_v1(dims=[d, 10, 1], k=6, bias=True)
+        model = ScalableDAG_v1_4(dims=[d, 10, 8, 1], d=5, k=6, bias=True)
 
+        W_est = scalable_dag_v1(model, X, log, lambda1=0.01, lambda2=0.01)
+        # print(W_est)
+        assert ut.is_dag(W_est)
+        np.savetxt('ScalableDAG_v1/W_est.csv', W_est, delimiter=',')
+        acc = ut.count_accuracy(B_true, W_est != 0)
+        print(acc)
+        print("obj func",log.log['obj_func'][r] )
+        
+        log.acc_update(acc) 
+    # VISUALIZTION
+    save_path = 'ScalableDAG_v1/visualization'
+    vis = Visualization(log.log, save_path)
+    vis.visualize()
+
+    print("\n-----------------------------------------")
+    log.print_acc_average()
 
 if __name__ == '__main__':
     main()

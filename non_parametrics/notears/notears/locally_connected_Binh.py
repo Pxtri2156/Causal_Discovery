@@ -48,6 +48,7 @@ class LocallyConnected(nn.Module):
             nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, input: torch.Tensor):
+        # input=[n,d*m1], weight = [1, d*m1, m2]
         #[n,m2] = [n,d*m1] @ [d*m1,m2]
         # print("input: ", input.shape)
         # print("self.weight.squeeze(dim=0): ", self.weight.squeeze(dim=0).shape)
