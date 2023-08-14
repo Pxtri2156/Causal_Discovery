@@ -578,7 +578,7 @@ def main():
     name = 'Scalable_v1'
     log = Logging(name)
     #AVERAG ---- 
-    for r in [15]: #[2,3,5,6,9,15,19,28,2000,2001]
+    for r in [15, 6]: #[2,3,5,6,9,15,19,28,2000,2001]
 
     #LOGGING----
         log.random_seed_update(r)
