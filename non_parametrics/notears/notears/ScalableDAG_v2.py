@@ -182,7 +182,7 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, rho, alpha
                 #loss 
                 loss += squared_loss(X_hat, X_torch) 
 
-            ortho = 0.0 #orthogonality(model(X_latin))
+            ortho = orthogonality(model(X_latin))
             h_val = model.h_func()
             penalty = 0.5 * rho * h_val * h_val + alpha * h_val
             l2_reg = 0.5 * lambda2 * model.l2_reg()
