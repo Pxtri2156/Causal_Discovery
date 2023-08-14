@@ -165,6 +165,7 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, rho, alpha
                 X_phi = X.copy()
                 X_alpha = np.zeros(X.shape) 
 
+
                 #modify X_phi, X_alpha
                 X_phi[:,j] = np.zeros(X.shape[0]) 
                 X_alpha[:,j] = X[:,j]
