@@ -7,6 +7,7 @@ import os
 import sys
 sys.path.append("./")
 from libs.notears.notears.linear import notears_linear
+from libs.notears.notears.nonlinear import NotearsMLP, notears_nonlinear
 from libs.dag_gnn.src.dag_gnn import dag_gnn, train_dag_gnn
 from libs.golem.src.golem import golem
 from libs.golem.src.utils.dir import get_datetime_str
@@ -41,6 +42,11 @@ class DAG_Agorithm:
         elif self.name == "DAG-GNN":
             print("Running DAG-GNN")
             W_est = dag_gnn(self.X, self.gt)
+            
+        elif self.name == "Non_parametric":
+            print("Running Non Parametric")
+            model = NotearsMLP(self.configs.MODEL['dims'], self.configs.MODEL['bias'])
+            W_est = notears_nonlinear(model, self.X, self.configs.ALGORITHM['LAMPDA_1'], self.configs.ALGORITHM['LAMPDA_2'])
         else:
             raise Exception ("Algorithm haven't defined or wrong name")
         return W_est
@@ -53,8 +59,13 @@ def load_config(file_path):
     
 def main(configs):
     # Load data 
-    data = DataLoader(configs.DATASET['NAME'])
-    X, gt = data.load_data(configs.DATASET['DATA_PATH'], configs.DATASET['GT_PATH'])
+    if configs.DATASET['NAME'] != "synthetic":
+        data = DataLoader(configs)
+        X, gt = data.load_data(configs.DATASET['DATA_PATH'], configs.DATASET['GT_PATH'])
+    else: 
+        data = DataLoader(configs)
+        X, gt = data.gen_data()
+        
     print("X: ", X)
     print("Ground Truth: ", gt)
     # Preprocessing 

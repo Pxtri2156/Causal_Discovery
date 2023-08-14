@@ -91,8 +91,6 @@ class ScalableDAG_V2(nn.Module):
         reg = torch.sum(self.fc1_pos.weight + self.fc1_neg.weight)
         return reg
     
-
-
     @torch.no_grad()
     def fc1_to_adj(self) -> np.ndarray:  # [j * m1, i] -> [i, j]
         """Get W from fc1 weights, take 2-norm over m1 dim"""
@@ -156,44 +154,7 @@ def squared_loss(output, target):
 def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max, X_latin):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
-    optimizer = LBFGSBScipy(model.parameters())
-
-    with torch.no_grad():
-        primal_obj = 0.0
-        loss = 0.0
-        ortho = 0.0
-        h_val = 0.0
-        penalty = 0.0
-        l2_reg = 0.0
-        l1_reg = 0.0
-        for j in range(X.shape[1]):
-            #init X_phi, X_alpha
-            X_phi = X.copy()
-            X_alpha = np.zeros(X.shape) 
-
-            #modify X_phi, X_alpha
-            X_phi[:,j] = np.zeros(X.shape[0]) 
-            X_alpha[:,j] = X[:,j]
-
-            #transform to tensor X_phi, X_alpha
-            X_phi_torch = torch.from_numpy(X_phi)
-            X_alpha_torch = torch.from_numpy(X_alpha)
-            X_torch = torch.from_numpy(X[:,[j]])
-
-            #get X_hat
-            X_phi_hat = model(X_phi_torch)
-            X_alpha_hat = model(X_alpha_torch)
-            X_hat = torch.sum(X_phi_hat*X_alpha_hat, dim=1, keepdim=True)
-        
-            #loss 
-            loss += squared_loss(X_hat, X_torch)
-            ortho += orthogonality(model(X_latin))
-            h_val += model.h_func()
-            penalty += 0.5 * rho * h_val * h_val + alpha * h_val
-            l2_reg += 0.5 * lambda2 * model.l2_reg()
-            l1_reg += lambda1 * model.fc1_l1_reg()
-            primal_obj += loss + penalty + l1_reg  + l2_reg + ortho
-
+    optimizer = LBFGSBScipy(model.parameters()) 
 
     def closure():
         total_primal_obj = 0.0
@@ -234,14 +195,57 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max, X_latin
     
     with torch.no_grad():
         h_new = model.h_func().item()
-    
+        total_primal_obj = 0.0
+        total_loss = 0.0
+        total_ortho = 0.0
+        total_h_val = 0.0
+        total_penalty = 0.0
+        total_l2_reg = 0.0
+        total_l1_reg = 0.0
+        for j in range(X.shape[1]):
+            #init X_phi, X_alpha
+            X_phi = X.copy()
+            X_alpha = np.zeros(X.shape) 
+
+            #modify X_phi, X_alpha
+            X_phi[:,j] = np.zeros(X.shape[0]) 
+            X_alpha[:,j] = X[:,j]
+
+            #transform to tensor X_phi, X_alpha
+            X_phi_torch = torch.from_numpy(X_phi)
+            X_alpha_torch = torch.from_numpy(X_alpha)
+            X_torch = torch.from_numpy(X[:,[j]])
+
+            #get X_hat
+            X_phi_hat = model(X_phi_torch)
+            X_alpha_hat = model(X_alpha_torch)
+            X_hat = torch.sum(X_phi_hat*X_alpha_hat, dim=1, keepdim=True)
+        
+            #loss 
+            loss = squared_loss(X_hat, X_torch)
+            ortho = orthogonality(model(X_latin))
+            h_val = model.h_func()
+            penalty = 0.5 * rho * h_val * h_val + alpha * h_val
+            l2_reg = 0.5 * lambda2 * model.l2_reg()
+            l1_reg = lambda1 * model.fc1_l1_reg()
+            primal_obj = loss + penalty + l1_reg  + l2_reg + ortho 
+            
+            #sum 
+            total_primal_obj += primal_obj
+            total_loss += loss
+            total_ortho += ortho
+            total_h_val += h_val
+            total_penalty += penalty
+            total_l2_reg += l2_reg
+            total_l1_reg += l1_reg
+
     if h_new > 0.25 * h:
         rho *= 10
     if h_new == None:
         h_new = h
         print('there is something with h_new')
     alpha += rho * h_new
-    return rho, alpha, h_new, primal_obj, loss, ortho, h_val
+    return rho, alpha, h_new, total_primal_obj, total_loss, total_ortho, total_h_val
 
 def notears_nonlinear(model: nn.Module,
                       X: np.ndarray,log,B_true,
@@ -253,17 +257,20 @@ def notears_nonlinear(model: nn.Module,
                       w_threshold: float = 0.3):
     rho, alpha, h = 1.0, 0.0, np.inf
     X_latin = latin_hyper(X, n=20)
-
     for _ in tqdm(range(max_iter)):
         rho, alpha, h, obj_func, loss, ortho, h_val = dual_ascent_step(model, X, lambda1, lambda2,
                                         rho, alpha, h, rho_max, X_latin)
         num_epoch = _
         W_est = model.fc1_to_adj()
         acc = count_accuracy(B_true, W_est != 0)
+        print(W_est)
+        print(B_true)
+        print(acc)
         log.step_update(log.log['random_seed'][-1],obj_func,loss,ortho,h_val,acc)
         if h <= h_tol or rho >= rho_max:
             break
 
+        
 
     log.log['num_epoch'][log.log['random_seed'][-1]] = num_epoch + 1 
 
@@ -281,7 +288,7 @@ def main():
     log = Logging(name)
     #AVERAG ---- 
 
-    random_numbers = [random.randint(1, 10000) for _ in range(3)]#[702,210,1536]
+    random_numbers = [random.randint(1, 10000) for _ in range(1)]#[702,210,1536]
     print(random_numbers)
     for r in random_numbers: #[2,3,5,6,9,15,19,28,2000,2001]
         print("\n-----------------------------------------")

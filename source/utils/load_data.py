@@ -6,10 +6,11 @@ from libs.notears.notears import utils as notears_utils
 
 class DataLoader:
     
-    def __init__(self, data_name):
-        self.data_name = data_name
+    def __init__(self, configs):
+        self.data_name = configs.DATASET['NAME']
         self.X = None # Dataset matrix
         self.GT = None # Ground truth matrix
+        self.configs = configs
         
     def load_data(self, dataset_path, gt_path):
         """ Load data 
@@ -64,11 +65,17 @@ class DataLoader:
             
         return self.X, self.GT
     
-    def gen_syn_data(self):
+    def gen_data(self):
         print(f"[INFO] Start generate synthesis data")
-        n, d, s0, graph_type, sem_type = 100, 20, 20, 'ER', 'gauss'
-        B_true = notears_utils.simulate_dag(d, s0, graph_type)
-        W_true = notears_utils.simulate_parameter(B_true)
-        X = notears_utils.simulate_linear_sem(W_true, n, sem_type)
+        # n, d, s0, graph_type, sem_type = 100, 20, 20, 'ER', 'gauss'
+        B_true = notears_utils.simulate_dag(self.configs.DATASET['d'], self.configs.DATASET['s0'], self.configs.DATASET['graph_type'])
+        # W_true = notears_utils.simulate_parameter(B_true)
+        np.savetxt(self.configs.DATASET['GT_PATH'], B_true, delimiter=',')
+        
+        X = notears_utils.simulate_nonlinear_sem(B_true, self.configs.DATASET['N'], self.configs.DATASET['sem_type'])
+        np.savetxt(self.configs.DATASET['DATA_PATH'], X, delimiter=',')
+
         self.X = X
         self.GT = B_true
+        return self.X, self.GT
+
