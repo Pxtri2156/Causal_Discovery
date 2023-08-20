@@ -41,6 +41,8 @@ class ScalableDAG_V2(nn.Module):
         for l in range(1,len(dims) - 2):
             layers.append(LocallyConnected(1, dims[l + 1], dims[l + 2], bias=bias))
         self.fc2 = nn.ModuleList(layers)
+        self.fc3 = nn.Linear(dims[-1], 1, bias=bias)
+
 
     def _bounds(self):
         d = self.dims[0]
@@ -51,18 +53,24 @@ class ScalableDAG_V2(nn.Module):
                     if i == j:
                         bound = (0, 0)
                     else:
-                        bound = (0, None)
+                        bound = (None, None)
                     bounds.append(bound)
         return bounds
 
     def forward(self, x):  # [n, d] -> [n, k]
-        x = self.fc1_pos(x) - self.fc1_neg(x)  # [n, d * m1]
-        # print(x.shape)
-        for fc in self.fc2:
-            x = torch.sigmoid(x) # [n, d * m1]
-            x = fc(x)  # [n, m2]
+        x_forward = torch.empty((x.size()))
+        for j in range(x.shape[1]):
+            x_j = torch.clone(x)   
+            x_j[:,j] = 0 
+            x_j = self.fc1_pos(x_j) - self.fc1_neg(x_j)  # [n, d * m1]
             # print(x.shape)
-        return x
+            for fc in self.fc2:
+                x_j = torch.sigmoid(x_j) # [n, d * m1]
+                x_j = fc(x_j)  # [n, m2]
+                # print(x.shape)
+            x_j = self.fc3(x_j)
+            x_forward[:,j] =  x_j[:,0]
+        return x_forward
 
     def h_func(self):
         """Constrain 2-norm-squared of fc1 weights along m1 dim to be a DAG"""
@@ -151,56 +159,27 @@ def squared_loss(output, target):
     loss = 1 / n * torch.sum((output - target) ** 2)
     return loss
 
-def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, rho, alpha, h, rho_max, X_latin, log):
+def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3, rho, alpha, h, rho_max, X_latin, log):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
     optimizer = LBFGSBScipy(model.parameters()) 
     while rho < rho_max:
         def closure():
             loss = 0.0
-            for j in range(X.shape[1]):
-                optimizer.zero_grad()
-
-                #init X_phi, X_alpha
-                X_phi = X.copy()
-                X_alpha = np.zeros(X.shape) 
-
-
-                #modify X_phi, X_alpha
-                X_phi[:,j] = np.zeros(X.shape[0]) 
-                X_alpha[:,j] = X[:,j]
-
-                #transform to tensor X_phi, X_alpha
-                X_phi_torch = torch.from_numpy(X_phi)
-                X_alpha_torch = torch.from_numpy(X_alpha)
-                X_torch = torch.from_numpy(X[:,[j]])
-
-                #get X_hat
-                X_phi_hat = model(X_phi_torch)
-                X_alpha_hat = model(X_alpha_torch)
-                X_hat = torch.sum(X_phi_hat*X_alpha_hat, dim=1, keepdim=True)
-            
-                #loss 
-                loss += squared_loss(X_hat, X_torch) 
-
-            ortho = orthogonality(model(X_latin))
+            optimizer.zero_grad()
+            #transform to tensor X_phi, X_alpha
+            X_torch = torch.from_numpy(X)
+            #get X_hat
+            X_hat = model(X_torch)            
+            #loss 
+            loss = squared_loss(X_hat, X_torch) 
+            ortho = lambda3*orthogonality(model(X_latin))
             h_val = model.h_func()
             penalty = 0.5 * rho * h_val * h_val + alpha * h_val
             l2_reg = 0.5 * lambda2 * model.l2_reg()
             l1_reg = lambda1 * model.fc1_l1_reg()
-                
             
             primal_obj = loss + ortho + penalty + l2_reg + l1_reg
-            
-            #logging 
-            W_est = model.fc1_to_adj()
-            W_est[np.abs(W_est) < w_threshold] = 0
-            acc = count_accuracy(B_true, W_est != 0)
-            # print(W_est)
-            # print(B_true)
-            # print(acc)
-            log.step_update(log.log['random_seed'][-1],primal_obj.detach().numpy(),loss.detach().numpy(),ortho,h_val.detach().numpy(),acc)
-
             #backwward
             primal_obj.backward()
             return primal_obj  #primal_obj
@@ -208,20 +187,33 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, rho, alpha
         
         with torch.no_grad():
             h_new = model.h_func().item()
+            X_torch = torch.from_numpy(X)
 
-        
+            #get X_hat
+            X_hat = model(X_torch)            
+
+            #loss 
+            loss = squared_loss(X_hat, X_torch) 
+            ortho = lambda3*orthogonality(model(X_latin))
+            penalty = 0.5 * rho * h_new * h_new + alpha * h_new
+            l2_reg = 0.5 * lambda2 * model.l2_reg()
+            l1_reg = lambda1 * model.fc1_l1_reg()
+            
+            primal_obj = loss + ortho + penalty + l2_reg + l1_reg
+
         if h_new > 0.25 * h:
             rho *= 10
         else:
             break
 
     alpha += rho * h_new
-    return rho, alpha, h_new
+    return rho, alpha, h_new, primal_obj, loss, ortho
 
-def notears_nonlinear(model: nn.Module,
+def ScalableDAG_V2_nonlinear(model: nn.Module,
                       X: np.ndarray,log,B_true,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
+                      lambda3: float = 0.,
                       max_iter: int = 100,
                       h_tol: float = 1e-8,
                       rho_max: float = 1e+16,
@@ -229,8 +221,11 @@ def notears_nonlinear(model: nn.Module,
     rho, alpha, h = 1.0, 0.0, np.inf
     X_latin = latin_hyper(X, n=20)
     for _ in tqdm(range(max_iter)):
-        rho, alpha, h = dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2,
-                                        rho, alpha, h, rho_max, X_latin, log)
+        rho, alpha, h, primal_obj, loss, ortho = dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3,
+                                        rho, alpha, h, rho_max, X_latin, log)   
+        log.step_update()
+
+        log.step_update(primal_obj, loss, ortho, h)
         if h <= h_tol or rho >= rho_max:
             break
 
@@ -247,11 +242,11 @@ def main():
 
     #LOGGING ----
     w_threshold = 0.01
-    name = 'test_woo'
+    name = 'test_3'
     log = Logging(name)
     #AVERAG ---- 
 
-    random_numbers = [random.randint(1, 10000) for _ in range(1)]#[702,210,1536]
+    random_numbers = [random.randint(1, 10000) for _ in range(5)]#[702,210,1536]
     print(random_numbers)
     for r in random_numbers: #[2,3,5,6,9,15,19,28,2000,2001]
         print("\n-----------------------------------------")
@@ -273,7 +268,7 @@ def main():
         model = ScalableDAG_V2(dims=[d , 10, k], bias=True)
 
         
-        W_est = notears_nonlinear(model, X, log, B_true, lambda1=0.01, lambda2=0.001, max_iter=50, w_threshold=w_threshold) #ADD LOG 
+        W_est = ScalableDAG_V2_nonlinear(model, X, log, B_true, lambda1=0.01, lambda2=0.01, lambda3=0.01, max_iter=50, w_threshold=w_threshold) #ADD LOG 
         assert ut.is_dag(W_est)
         acc = ut.count_accuracy(B_true, W_est != 0)
         # np.savetxt(f'ScalableDAG_v2/W_est_{r}.csv', W_est, delimiter=',')
