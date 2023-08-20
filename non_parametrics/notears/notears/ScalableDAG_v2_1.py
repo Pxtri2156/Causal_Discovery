@@ -223,8 +223,6 @@ def ScalableDAG_V2_nonlinear(model: nn.Module,
     for _ in tqdm(range(max_iter)):
         rho, alpha, h, primal_obj, loss, ortho = dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3,
                                         rho, alpha, h, rho_max, X_latin, log)   
-        log.step_update()
-
         log.step_update(primal_obj, loss, ortho, h)
         if h <= h_tol or rho >= rho_max:
             break
@@ -249,6 +247,7 @@ def main():
     random_numbers = [random.randint(1, 10000) for _ in range(5)]#[702,210,1536]
     print(random_numbers)
     for r in random_numbers: #[2,3,5,6,9,15,19,28,2000,2001]
+        # print('Binh')
         print("\n-----------------------------------------")
         print('random seed:',r)
         ut.set_random_seed(r)
