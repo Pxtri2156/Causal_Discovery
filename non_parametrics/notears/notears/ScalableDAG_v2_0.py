@@ -189,7 +189,7 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, rho, alpha
             l2_reg = 0.5 * lambda2 * model.l2_reg()
             l1_reg = lambda1 * model.fc1_l1_reg()
                 
-            
+            # gamma contraints for ortho
             primal_obj = loss + ortho + penalty + l2_reg + l1_reg
             
             #logging 
@@ -218,7 +218,7 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, rho, alpha
     alpha += rho * h_new
     return rho, alpha, h_new
 
-def notears_nonlinear(model: nn.Module,
+def scalableDAGv2_nonlinear(model: nn.Module,
                       X: np.ndarray,log,B_true,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
@@ -247,11 +247,11 @@ def main():
 
     #LOGGING ----
     w_threshold = 0.01
-    name = 'test_woo'
+    name = 'test_3'
     log = Logging(name)
     #AVERAG ---- 
 
-    random_numbers = [random.randint(1, 10000) for _ in range(1)]#[702,210,1536]
+    random_numbers = [random.randint(1, 10000) for _ in range(5)]#[702,210,1536]
     print(random_numbers)
     for r in random_numbers: #[2,3,5,6,9,15,19,28,2000,2001]
         print("\n-----------------------------------------")
@@ -273,7 +273,7 @@ def main():
         model = ScalableDAG_V2(dims=[d , 10, k], bias=True)
 
         
-        W_est = notears_nonlinear(model, X, log, B_true, lambda1=0.01, lambda2=0.001, max_iter=50, w_threshold=w_threshold) #ADD LOG 
+        W_est = scalableDAGv2_nonlinear(model, X, log, B_true, lambda1=0.01, lambda2=0.001, max_iter=50, w_threshold=w_threshold) #ADD LOG 
         assert ut.is_dag(W_est)
         acc = ut.count_accuracy(B_true, W_est != 0)
         # np.savetxt(f'ScalableDAG_v2/W_est_{r}.csv', W_est, delimiter=',')

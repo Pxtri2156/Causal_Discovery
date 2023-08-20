@@ -168,6 +168,7 @@ def orthogonality(X):
         for j in range(i+1,X.shape[0]):
             if (i!=j): 
                 ortho += float(abs(X[[i],:] @ X[[j],:].transpose(0,1)))
+                # torch.dot
                 # print(X[[i],:].shape)
                 # print(X[[j],:].shape)
                 # print(torch.sum(X[[i],:] * X[[j],:]))

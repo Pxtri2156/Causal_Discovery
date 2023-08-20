@@ -1,5 +1,5 @@
 /workspace/tripx/projects/causality/BNGPU/benchmark_data
-*log*
+# *log*
 *.csv
 cuda-repo-ubuntu1604-9-0-local_9.0.176-1_amd64-deb
 /workspace/causal_discovery/non_parametrics/container.simg?download=1
