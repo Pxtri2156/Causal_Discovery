@@ -65,6 +65,7 @@ class Visualization():
         plt.subplots_adjust( wspace=0.5, hspace=0.5, right=0.8)
         name = self.name + '.png'
         save_fig = os.path.join(self.path, name)
+        plt.tight_layout()
         plt.savefig(save_fig)
 
 def main(): 
