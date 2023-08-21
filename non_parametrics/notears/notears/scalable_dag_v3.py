@@ -54,13 +54,8 @@ class ScalableDAGv3(nn.Module):
             layers.append(LocallyConnected(self.K, dims[l + 1], dims[l + 2], bias=bias)) # input [d, 10, 1]
             
         self.fc2 = nn.ModuleList(layers)
-        
-        # # fc3 layers = alpha layers
-        # self.fc3 = [] 
-        # for _ in range(d):
-        #     self.fc3.append(nn.Linear(self.K, 1,  bias=False))
-        # self.fc3 = nn.ModuleList(self.fc3)        
-        # Define pivae
+              
+        # Define pivae layers
         self.betas = nn.ModuleList()
         for _ in range(self.batch_size):
             self.betas.append(nn.Linear(k, 1)) 
@@ -102,13 +97,14 @@ class ScalableDAGv3(nn.Module):
         last_phi_x = torch.stack(last_phi_x) # [d, n, k]
         last_phi_x = last_phi_x.transpose(0, 1) # [n, d, k]
 
+        # feed for forward of VAE
         y1 = torch.stack([self.betas[i](last_phi_x[i]) for i in range(self.batch_size)
                             ]).flatten(1)
         beta = torch.stack([self.betas[i].weight for i in range(self.batch_size)
                             ]).flatten(0,1)
         beta_vae = self.vae(beta)
         y2 = torch.stack([last_phi_x[i]@beta_vae[0][i] + self.betas[i].bias for i in 
-                            range(self.batch_size)])
+                            range(self.batch_size)]) # y2 = X_hat 
         return y1, y2, beta_vae[1], beta_vae[2]
 
     def get_fc1_weight(self):
@@ -171,7 +167,7 @@ def squared_loss(output, target):
     loss = 0.5 / n * torch.sum((output - target) ** 2) # Request norm 2
     return loss
 
-def cal_vae_loss(target, reconstructed1, reconstructed2, mean, log_var):
+def cal_vae_loss(target, reconstructed1, reconstructed2, mean, log_var): # loss vae
     # reconstruction loss
     RCL = F.mse_loss(reconstructed1, target, reduction='sum') + \
                 F.mse_loss(reconstructed2, target, reduction='sum') # Loss 1 + 2 
