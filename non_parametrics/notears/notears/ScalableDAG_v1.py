@@ -18,7 +18,7 @@ import math
 import notears.utils as ut
 from notears.visualize import Visualization
 from notears.orthogonality import latin_hyper, orthogonality
-from notears.log import Logging
+# from notears.log import Logging
 import random
 
 
@@ -535,7 +535,7 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
 
 
 def scalable_dag_v1(model: nn.Module,
-                      X: np.ndarray, log,
+                      X: np.ndarray,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
                       max_iter: int = 100,
@@ -551,7 +551,6 @@ def scalable_dag_v1(model: nn.Module,
 
         ortho = 0
         acc={'fdr':0, "fpr":0, 'tpr':0, 'shd':0}
-        log.step_update(log.log['random_seed'][-1], obj_func, loss, ortho, h_val, acc)
         
         if h <= h_tol or rho >= rho_max:
             print(h)
@@ -560,7 +559,6 @@ def scalable_dag_v1(model: nn.Module,
             break
         
         
-    log.log['num_epoch'][log.log['random_seed'][-1]] = num_epoch + 1 
     W_est = model.fc1_to_adj() # convert the matrix
     W_est[np.abs(W_est) < w_threshold] = 0
     return W_est
@@ -575,12 +573,10 @@ def main():
 
     #LOGGING ----
     name = 'Scalable_v1'
-    log = Logging(name)
     #AVERAG ---- 
     for r in [2,3,5,6,9,15,19,28,2000,2001]: #
 
     #LOGGING----
-        log.random_seed_update(r)
         
         n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
         B_true = ut.simulate_dag(d, s0, graph_type)
@@ -595,22 +591,14 @@ def main():
         # model = ScalableDAG_v1(dims=[d, 10, 1], k=6, bias=True)
         model = ScalableDAG_v1_4(dims=[d, 10, 8, 1], d=5, k=6, bias=True)
 
-        W_est = scalable_dag_v1(model, X, log, lambda1=0.01, lambda2=0.01)
+        W_est = scalable_dag_v1(model, X, lambda1=0.01, lambda2=0.01)
         # print(W_est)
         assert ut.is_dag(W_est)
         np.savetxt('ScalableDAG_v1/W_est.csv', W_est, delimiter=',')
         acc = ut.count_accuracy(B_true, W_est != 0)
         print(acc)
-        print("obj func",log.log['obj_func'][r] )
         
-        log.acc_update(acc) 
-    # VISUALIZTION
-    save_path = 'ScalableDAG_v1/visualization'
-    vis = Visualization(log.log, save_path)
-    vis.visualize()
 
-    print("\n-----------------------------------------")
-    log.print_acc_average()
 
 if __name__ == '__main__':
     main()
