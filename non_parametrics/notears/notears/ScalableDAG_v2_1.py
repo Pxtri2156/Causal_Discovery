@@ -2,6 +2,8 @@
 import  sys
 
 sys.path.append("./")
+sys.path.append("/workspace/causal_discovery/non_parametrics/notears/notears")
+
 
 from notears.locally_connected_Binh import LocallyConnected
 from notears.lbfgsb_scipy import LBFGSBScipy
@@ -18,7 +20,7 @@ from scipy.stats import qmc
 import notears.utils as ut
 from notears.visualize import Visualization
 from notears.orthogonality import latin_hyper, orthogonality
-from notears.log import Logging
+from notears.log_causal import LogCausal
 import random
 
 class ScalableDAG_V2(nn.Module):
@@ -110,50 +112,7 @@ class ScalableDAG_V2(nn.Module):
         W = W.cpu().detach().numpy()  # [i, j]
         return W
 
-def count_accuracy(B_true, B_est):
-    # if (B_est == -1).any():  # cpdag
-    #     if not ((B_est == 0) | (B_est == 1) | (B_est == -1)).all():
-    #         raise ValueError('B_est should take value in {0,1,-1}')
-    #     if ((B_est == -1) & (B_est.T == -1)).any():
-    #         raise ValueError('undirected edge should only appear once')
-    # else:  # dag
-    #     if not ((B_est == 0) | (B_est == 1)).all():
-    #         raise ValueError('B_est should take value in {0,1}')
-    #     if not is_dag(B_est):
-    #         raise ValueError('B_est should be a DAG')
-    d = B_true.shape[0]
-    # linear index of nonzeros
-    pred_und = np.flatnonzero(B_est == -1)
-    pred = np.flatnonzero(B_est == 1)
-    cond = np.flatnonzero(B_true)
-    cond_reversed = np.flatnonzero(B_true.T)
-    cond_skeleton = np.concatenate([cond, cond_reversed])
-    # true pos
-    true_pos = np.intersect1d(pred, cond, assume_unique=True)
-    # treat undirected edge favorably
-    true_pos_und = np.intersect1d(pred_und, cond_skeleton, assume_unique=True)
-    true_pos = np.concatenate([true_pos, true_pos_und])
-    # false pos
-    false_pos = np.setdiff1d(pred, cond_skeleton, assume_unique=True)
-    false_pos_und = np.setdiff1d(pred_und, cond_skeleton, assume_unique=True)
-    false_pos = np.concatenate([false_pos, false_pos_und])
-    # reverse
-    extra = np.setdiff1d(pred, cond, assume_unique=True)
-    reverse = np.intersect1d(extra, cond_reversed, assume_unique=True)
-    # compute ratio
-    pred_size = len(pred) + len(pred_und)
-    cond_neg_size = 0.5 * d * (d - 1) - len(cond)
-    fdr = float(len(reverse) + len(false_pos)) / max(pred_size, 1)
-    tpr = float(len(true_pos)) / max(len(cond), 1)
-    fpr = float(len(reverse) + len(false_pos)) / max(cond_neg_size, 1)
-    # structural hamming distance
-    pred_lower = np.flatnonzero(np.tril(B_est + B_est.T))
-    cond_lower = np.flatnonzero(np.tril(B_true + B_true.T))
-    extra_lower = np.setdiff1d(pred_lower, cond_lower, assume_unique=True)
-    missing_lower = np.setdiff1d(cond_lower, pred_lower, assume_unique=True)
-    shd = len(extra_lower) + len(missing_lower) + len(reverse)
-    return {'fdr': fdr, 'tpr': tpr, 'fpr': fpr, 'shd': shd, 'nnz': pred_size}
-    
+  
 def squared_loss(output, target):
     n = target.shape[0]
     loss = 1 / n * torch.sum((output - target) ** 2)
@@ -224,10 +183,12 @@ def ScalableDAG_V2_nonlinear(model: nn.Module,
         rho, alpha, h, primal_obj, loss, ortho = dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3,
                                         rho, alpha, h, rho_max, X_latin, log)   
         log.step_update(primal_obj, loss, ortho, h)
+        num_epoch = _ + 1
         if h <= h_tol or rho >= rho_max:
             break
+        
 
-    log.log['num_epoch'][log.log['random_seed'][-1]] = len(log.log['obj_func'][log.log['random_seed'][-1]])
+    log.log['num_epoch'][log.log['random_seed'][-1]] = num_epoch
 
     W_est = model.fc1_to_adj()
     W_est[np.abs(W_est) < w_threshold] = 0
@@ -239,12 +200,16 @@ def main():
     np.set_printoptions(precision=3)
 
     #LOGGING ----
-    w_threshold = 0.01
-    name = 'test_3'
-    log = Logging(name)
+    lambda1 = 0.01
+    lambda2 = 0.01
+    lambda3 = 0.01
+    lambda_ = [lambda1, lambda2, lambda3]
+    w_threshold = 0.3
+    name = 'test_1'
+    log = LogCausal(name, lambda_)
     #AVERAG ---- 
 
-    random_numbers = [random.randint(1, 10000) for _ in range(5)]#[702,210,1536]
+    random_numbers = [random.randint(1, 10000) for _ in range(3)]#[702,210,1536]
     print(random_numbers)
     for r in random_numbers: #[2,3,5,6,9,15,19,28,2000,2001]
         # print('Binh')
@@ -267,7 +232,7 @@ def main():
         model = ScalableDAG_V2(dims=[d , 10, k], bias=True)
 
         
-        W_est = ScalableDAG_V2_nonlinear(model, X, log, B_true, lambda1=0.01, lambda2=0.01, lambda3=0.01, max_iter=50, w_threshold=w_threshold) #ADD LOG 
+        W_est = ScalableDAG_V2_nonlinear(model, X, log, B_true, lambda1=lambda1, lambda2=lambda2, lambda3=lambda3, max_iter=50, w_threshold=w_threshold) #ADD LOG 
         assert ut.is_dag(W_est)
         acc = ut.count_accuracy(B_true, W_est != 0)
         # np.savetxt(f'ScalableDAG_v2/W_est_{r}.csv', W_est, delimiter=',')

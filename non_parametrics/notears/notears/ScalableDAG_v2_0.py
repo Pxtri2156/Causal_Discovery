@@ -18,7 +18,7 @@ from scipy.stats import qmc
 import notears.utils as ut
 from notears.visualize import Visualization
 from notears.orthogonality import latin_hyper, orthogonality
-from notears.log import Logging
+from non_parametrics.notears.notears.log_causal import Logging
 import random
 
 class ScalableDAG_V2(nn.Module):

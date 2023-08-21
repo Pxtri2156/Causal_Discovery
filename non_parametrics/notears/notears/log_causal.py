@@ -1,9 +1,10 @@
 
-class Logging():
-    def __init__(self,name):
-        super(Logging, self).__init__()
+class LogCausal():
+    def __init__(self,name, lamda):
+        # super(Logging, self).__init__()
         self.log = {}
         self.log['name'] = name
+        self.log['lamda'] = lamda
         self.log['random_seed'] = []
         self.log['obj_func'] = {}
         self.log['loss'] = {}
@@ -34,10 +35,10 @@ class Logging():
     
     def acc_update(self, acc): 
         self.acc.append(acc)
-        self.log['score']['fdr'][self.log['random_seed'][-1]].append(acc['fdr']) 
-        self.log['score']['fpr'][self.log['random_seed'][-1]].append(acc['fpr']) 
-        self.log['score']['tpr'][self.log['random_seed'][-1]].append(acc['tpr']) 
-        self.log['score']['shd'][self.log['random_seed'][-1]].append(acc['shd'])
+        self.log['score']['fdr'][self.log['random_seed'][-1]] = acc['fdr'] 
+        self.log['score']['fpr'][self.log['random_seed'][-1]] = acc['fpr']
+        self.log['score']['tpr'][self.log['random_seed'][-1]] = acc['tpr']
+        self.log['score']['shd'][self.log['random_seed'][-1]] = acc['shd']
     
     def print_acc_average(self): 
         for i in self.acc: 
@@ -52,12 +53,11 @@ class Logging():
         print(f'average: | {self.acc_average}|')
         
 
-    def step_update(self, obj_func, loss, ortho, h_val):
-        print("here")
+    def step_update(self, obj_func, loss, ortho, h):
         self.log['obj_func'][self.log['random_seed'][-1]].append(obj_func)
         self.log['loss'][self.log['random_seed'][-1]].append(loss)
         self.log['ortho'][self.log['random_seed'][-1]].append(ortho)
-        self.log['h_func'][self.log['random_seed'][-1]].append(h_val)
+        self.log['h_func'][self.log['random_seed'][-1]].append(h)
 
 
     
