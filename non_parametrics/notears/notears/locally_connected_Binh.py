@@ -38,6 +38,7 @@ class LocallyConnected(nn.Module):
             self.register_parameter('bias', None)
 
         self.reset_parameters()
+        
 
     @torch.no_grad()
     def reset_parameters(self):
