@@ -10,6 +10,7 @@ from notears.trace_expm import trace_expm
 
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import numpy as np
 import math
 from tqdm import tqdm
@@ -76,7 +77,6 @@ class NotearsMLP(nn.Module):
         # E = torch.matrix_power(M, d - 1)
         # h = (E.t() * M).sum() - d
         # print("h function: ", h)
-        print("h_func: ", h.item())
 
         return h
 
@@ -190,6 +190,7 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
     #     print(type(param), param.size())
     # # input("Hi")
     optimizer = LBFGSBScipy(model.parameters())
+    # optimizer = optim.LBFGS(model.parameters())    
     X_torch = torch.from_numpy(X)
     while rho < rho_max:
         def closure():
@@ -203,7 +204,6 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
             l1_reg = lambda1 * model.fc1_l1_reg()
             primal_obj = loss + penalty + l2_reg + l1_reg
             primal_obj.backward()
-            print('primal_obj: ', primal_obj.item())
             return primal_obj
         optimizer.step(closure)  # NOTE: updates model in-place
         with torch.no_grad():

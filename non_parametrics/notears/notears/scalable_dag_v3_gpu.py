@@ -1,16 +1,20 @@
+
 import  sys
 from tqdm import tqdm
 
 sys.path.append("./")
+sys.path.append("../")
+
 sys.path.append("/workspace/causal_discovery/non_parametrics/notears/notears")
 
 from notears.locally_connected import LocallyConnected
-from notears.lbfgsb_scipy import LBFGSBScipy
-from notears.trace_expm import trace_expm
+from notears.lbfgsb_scipy_gpu import LBFGSBScipy
+from notears.trace_expm_gpu import trace_expm
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F 
+import torch.optim as optim
 import numpy as np
 import math
 
@@ -18,16 +22,19 @@ import notears.utils as ut
 from notears.visualize import Visualization
 from notears.orthogonality import latin_hyper, orthogonality
 from notears.vae import VAE
+from notears.log_causal import LogCausal
 import random
 
    
+
 class ScalableDAGv3(nn.Module):
     
-    def __init__(self, dims, pivae_dims, d, k, batch_size, bias=True ):
+    def __init__(self, device, dims, pivae_dims, d, k, batch_size, bias=True ):
         super(ScalableDAGv3, self).__init__()
         assert len(dims) >= 2
         assert dims[-1] == 1
         d = dims[0]
+        self.device = device
         self.d = d
         self.dims = dims
         self.K = k
@@ -60,7 +67,8 @@ class ScalableDAGv3(nn.Module):
                    
         self.vae = VAE(input_dim=k, hidden_dim1=pivae_dims[0], 
                         hidden_dim2=pivae_dims[1], latent_dim=pivae_dims[2])
-    
+
+        
     def _bounds(self): #DAG
         bounds = []
         for j in range(self.d):
@@ -80,14 +88,14 @@ class ScalableDAGv3(nn.Module):
     def forward(self, x):  # [n, d] -> [n, d]
         last_phi_x = []
         for j, (fc1_pos_iter, fc1_neg_iter) in enumerate(zip(self.fc1_pos, self.fc1_neg)):
-            x_phi = torch.clone(x)   
+            x_phi = torch.clone(x)
             x_phi[:,j] = 0  #[n, d]
+            x_phi = x_phi.to(self.device)
             x_phi = fc1_pos_iter(x_phi) - fc1_neg_iter(x_phi)  # [n, m1]
             x_phi = x_phi[:, None, :].expand(-1, self.K, -1)  # [n, k, m1]
             for fc in self.fc2:
                 x_phi = torch.sigmoid(x_phi)  # [n, k, m1]
                 x_phi = fc(x_phi)  # [n, k, 1]
-                # print('fc2 weight: ', fc.weight.size())
             # print(x_phi.shape)
             x_phi = x_phi.squeeze(dim=2)  # [n, k]
             last_phi_x.append(x_phi)
@@ -106,7 +114,7 @@ class ScalableDAGv3(nn.Module):
         return y1, y2, beta_vae[1], beta_vae[2]
 
     def get_fc1_weight(self):
-        fc1_weight = torch.empty((self.d*self.dims[1], self.d))
+        fc1_weight = torch.empty((self.d*self.dims[1], self.d)).to(self.device)
         for j, (fc1_pos_iter, fc1_neg_iter) in enumerate(zip(self.fc1_pos, self.fc1_neg)):
             weight = fc1_pos_iter.weight - fc1_neg_iter.weight # [m1, d]
             start_ix = j*self.dims[1]
@@ -115,7 +123,7 @@ class ScalableDAGv3(nn.Module):
         return fc1_weight # [d*m1, d]
     
     def get_sum_fc1_weight(self):
-        fc1_weight = torch.empty((self.d*self.dims[1], self.d))
+        fc1_weight = torch.empty((self.d*self.dims[1], self.d)).to(self.device)
         for j, (fc1_pos_iter, fc1_neg_iter) in enumerate(zip(self.fc1_pos, self.fc1_neg)):
             weight = fc1_pos_iter.weight + fc1_neg_iter.weight # [m1, d]
             start_ix = j*self.dims[1]
@@ -127,11 +135,9 @@ class ScalableDAGv3(nn.Module):
         """Constrain 2-norm-squared of fc1 weights along m1 dim to be a DAG"""
         fc1_weight = self.get_fc1_weight()  # # [d*m1, d]
         fc1_weight = fc1_weight.view(self.d, -1, self.d)  # [d, m1, d]
-        # print("h fc1_weight: ", fc1_weight.shape)
+        # print('fc1_weight: ', fc1_weight.device)
         A = torch.sum(fc1_weight * fc1_weight, dim=1).t()  # [d, d]
-        # print("A: ", A)
-        # print('trace_expm(A):', trace_expm(A))
-        h = trace_expm(A) - self.d  # (Zheng et al. 2018)
+        h = trace_expm(A).to(self.device) - self.d  # (Zheng et al. 2018)
         # print("h_func: ", h.item())
         return h
 
@@ -139,6 +145,7 @@ class ScalableDAGv3(nn.Module):
         """Take 2-norm-squared of all parameters"""
         reg = 0.
         fc1_weight = self.get_fc1_weight()  # # [d*m1, d]
+        
         reg += torch.sum(fc1_weight ** 2)
         for fc in self.fc2:
             reg += torch.sum(fc.weight ** 2)
@@ -174,19 +181,22 @@ def cal_vae_loss(target, reconstructed1, reconstructed2, mean, log_var): # loss 
     return RCL + KLD
 
 
-def dual_ascent_step(model, X, lambda1, lambda2, lambda3, rho, alpha, h, rho_max):
+def dual_ascent_step(model, device, X_torch, lambda1, lambda2, lambda3, rho, alpha, h, rho_max):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
-    # for param in model.parameters():
-    #     print(type(param), param.size())
-    # input("Hi")
-    optimizer = LBFGSBScipy(model.parameters())
-    X_torch = torch.from_numpy(X)
+    optimizer = LBFGSBScipy(model.parameters(), device)
+    # optimizer = optim.LBFGS(model.parameters())    
+    # for name, param in model.named_parameters():
+    #     print(f"Parameter '{name}' on device: {param.device}")
+    # input("Stop")
     primal_obj = 0.0
     loss = 0.0
     h_val = 0.0
     while rho < rho_max:
         def closure():
+            # for name, param in model.named_parameters():
+            #     print(f"Parameter '{name}' on device: {param.device}")
+            # input("Stop 2")
             optimizer.zero_grad()
             # X_hat = model(X_torch)
             y1, y2, z_mu, z_sd = model(X_torch)
@@ -198,8 +208,10 @@ def dual_ascent_step(model, X, lambda1, lambda2, lambda3, rho, alpha, h, rho_max
             l2_reg = 0.5 * lambda2 * model.l2_reg()
             l1_reg = lambda1 * model.fc1_l1_reg()
             primal_obj = loss + penalty + l2_reg + l1_reg + vae_loss*lambda3
+            # print('primal_obj 0: ', primal_obj.device)
             primal_obj.backward()
             # print('primal_obj: ', primal_obj.item())
+            # print("primal_obj 1: ", primal_obj.device)
             return primal_obj
         
         optimizer.step(closure)  # NOTE: updates model in-place
@@ -213,7 +225,8 @@ def dual_ascent_step(model, X, lambda1, lambda2, lambda3, rho, alpha, h, rho_max
     return rho, alpha, h_new, primal_obj, loss, h_val
 
 
-def scalable_dag_v3(model: nn.Module,
+def scalable_dag_v3(model: nn.Module, 
+                      device,
                       X: np.ndarray,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
@@ -223,12 +236,14 @@ def scalable_dag_v3(model: nn.Module,
                       rho_max: float = 1e+16,
                       w_threshold: float = 0.3):
     rho, alpha, h = 1.0, 0.0, np.inf
+    X_torch = torch.from_numpy(X)
+
     for _ in tqdm(range(max_iter)):
         print(f"{'='*30} Iter {_} {'='*30}")
-        rho, alpha, h, obj_func, loss, h_val = dual_ascent_step(model, X, lambda1, lambda2, lambda3,
+        X_torch = X_torch.to(device)
+        rho, alpha, h, obj_func, loss, h_val = dual_ascent_step(model, device, X_torch, lambda1, lambda2, lambda3,
                                          rho, alpha, h, rho_max)
         num_epoch = _
-
         ortho = 0
         acc={'fdr':0, "fpr":0, 'tpr':0, 'shd':0}
         
@@ -243,14 +258,17 @@ def scalable_dag_v3(model: nn.Module,
 
 
 def main():
+    print(torch.cuda.is_available())
+    torch.autograd.set_detect_anomaly(True)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("device: ", device)
     torch.set_default_dtype(torch.double)
     np.set_printoptions(precision=3)
 
     import notears.utils as ut
     ut.set_random_seed(1234)
-    for r in [15]: #
+    for r in [15, 6, 2000]: #
     #LOGGING----
-        
         n, d, k, s0, graph_type, sem_type = 200, 5, 6, 9, 'ER', 'mim'
         hidden_dims1 = 128
         hidden_dims2 = 64
@@ -260,17 +278,19 @@ def main():
         pivae_dims = [hidden_dims1, hidden_dims2, z_dim]
         
         B_true = ut.simulate_dag(d, s0, graph_type)
-        np.savetxt('scalable_dag_v3/W_true.csv', B_true, delimiter=',')
+        np.savetxt('./scalable_dag_v3/W_true.csv', B_true, delimiter=',')
 
         X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-        np.savetxt('scalable_dag_v3/X.csv', X, delimiter=',')
+        np.savetxt('./scalable_dag_v3/X.csv', X, delimiter=',')
         print("[INFO]: Done gen and save dataset!!!")
-        model = ScalableDAGv3(dims, pivae_dims, d, k, batch_size, bias=True )
-
-        W_est = scalable_dag_v3(model, X, lambda1=0.01, lambda2=0.01, lambda3=0.01)
+        model = ScalableDAGv3(device, dims, pivae_dims, d, k, batch_size, bias=True )
+        
+        # GPU
+        model = model.to(device)
+        W_est = scalable_dag_v3(model, device, X,  lambda1=0.01, lambda2=0.01, lambda3=1)
         # print(W_est)
         assert ut.is_dag(W_est)
-        np.savetxt('scalable_dag_v3/W_est.csv', W_est, delimiter=',')
+        np.savetxt('./scalable_dag_v3/W_est.csv', W_est, delimiter=',')
         acc = ut.count_accuracy(B_true, W_est != 0)
         print(acc)
         
