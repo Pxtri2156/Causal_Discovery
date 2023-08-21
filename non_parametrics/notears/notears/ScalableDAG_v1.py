@@ -491,7 +491,6 @@ class ScalableDAG_v1(nn.Module):
         return W
 
 
-
 def squared_loss(output, target):
     n = target.shape[0]
     loss = 0.5 / n * torch.sum((output - target) ** 2) # Request norm 2
@@ -578,7 +577,7 @@ def main():
     name = 'Scalable_v1'
     log = Logging(name)
     #AVERAG ---- 
-    for r in [15, 6]: #[2,3,5,6,9,15,19,28,2000,2001]
+    for r in [2,3,5,6,9,15,19,28,2000,2001]: #
 
     #LOGGING----
         log.random_seed_update(r)
