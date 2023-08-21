@@ -5,61 +5,52 @@ class Visualization():
     def __init__(self, log, save_path):
         super(Visualization, self).__init__()
         self.random_seed = log['random_seed']
-        self.obj = log['obj_func'] 
-        self.loss = log['loss']
-        self.orth = log['ortho']
-        self.h = log['h_func']
         self.score = log['score'] 
         self.name = log['name']
         self.path = save_path
         self.num_epoch = log['num_epoch']
         self.lamda = log['lamda']
+        self.key_list = log['key_list']
+        self.log = {}
+        for k in self.key_list: 
+            self.log[k] = log[k]
+
     def visualize(self):
         
         # plt.text(0, 0, 'Parabola $Y = x^2$', fontsize = 22)
+
         figure, axis = plt.subplots(len(self.random_seed) + 1, figsize=(15, 100))
-        #color 
-        obj = 'r'
-        loss = 'b'
-        orth = 'g'
-        h = 'y'
-        
-        figure.suptitle(f'lamda_dag={self.lamda[0]}, lamda_l2={self.lamda[1]}, lamda_ortho={self.lamda[2]}', fontsize = 15)
-
-        plt.title(f'lamda_dag={self.lamda[0]}, lamda_l2={self.lamda[1]}, lamda_ortho={self.lamda[2]}')
-
         #score
         fdr_scores = list(self.score['fdr'].values())
         tpr_scores = list(self.score['tpr'].values())
         fpr_scores = list(self.score['fpr'].values())
         shd_scores = list(self.score['shd'].values())
-        all_scores = [fdr_scores, tpr_scores, fpr_scores, shd_scores]
-        axis[0].boxplot(all_scores, labels=['FDR', 'TPR', 'FPR', 'SHD'])
-        
+        nnz_scores = list(self.score['nnz'].values())
+        all_scores = [fdr_scores, tpr_scores, fpr_scores, shd_scores, nnz_scores]
+        unit = 0.5
+        flat_scores = [item for sublist in all_scores for item in sublist]
+        y_tick_positions = np.arange(0, max(flat_scores) + unit, unit)
+
+        axis[0].boxplot(all_scores, labels=['FDR', 'TPR', 'FPR', 'SHD', 'NNZ'])
         axis[0].set_xlabel('Metrics')
         axis[0].set_ylabel('Scores')
-        axis[0].set_title(f'Metric Scores')
-        axis[0].set_xticklabels(['FDR', 'TPR', 'FPR', 'SHD'])
+        axis[0].set_title(f'lamda_dag={self.lamda[0]}, lamda_l2={self.lamda[1]}, lamda_ortho={self.lamda[2]}')
+        axis[0].set_xticklabels(['FDR', 'TPR', 'FPR', 'SHD', 'NNZ'])
+        axis[0].set_yticklabels(y_tick_positions)
 
+
+        #color
+        color = {}
+        for k in self.key_list: 
+            color[k] = np.random.rand(3)
         #plot in each random seed 
         for idx, seed in enumerate(self.random_seed): 
             idx+=1
             X = range(self.num_epoch[seed])
-
-            # For Objective Function
-            axis[idx].plot(X, self.obj[seed],color=obj,label='objective function')
-
-            # For Loss Function
-            axis[idx].plot(X, self.loss[seed],color=loss,label='squared loss')
-
-            # For Orthogonal Function
-            axis[idx].plot(X, self.orth[seed],color=orth,label= 'orthogonal contraints')
-
-            # For h Function
-            axis[idx].plot(X, self.h[seed],color=h,label='h function')
-
-            axis[idx].legend(loc='upper left', bbox_to_anchor=(1, 1))
-            axis[idx].set_title('Random seed: ' +  str(seed))
+            for k in self.key_list: 
+                axis[idx].plot(X, self.log[k][seed],color=color[k],label=k)
+                axis[idx].legend(loc='upper left', bbox_to_anchor=(1, 1))
+                axis[idx].set_title('Random seed: ' +  str(seed))
         
         
         plt.subplots_adjust( wspace=0.5, hspace=0.5, right=0.8)

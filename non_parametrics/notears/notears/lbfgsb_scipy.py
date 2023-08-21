@@ -12,12 +12,12 @@ class LBFGSBScipy(torch.optim.Optimizer):
     def __init__(self, params):
         defaults = dict()
         super(LBFGSBScipy, self).__init__(params, defaults)
-
         if len(self.param_groups) != 1:
             raise ValueError("LBFGSBScipy doesn't support per-parameter options"
                              " (parameter groups)")
 
-        self._params = self.param_groups[0]['params']
+        self._params =  self.param_groups[0]['params']
+
         # print('params: ', self._params)
         self._numel = sum([p.numel() for p in self._params])
         
