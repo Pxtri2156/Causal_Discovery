@@ -2,7 +2,6 @@
 import  sys
 
 sys.path.append("./")
-sys.path.append("/workspace/causal_discovery/non_parametrics/notears/notears")
 
 
 from notears.locally_connected_Binh import LocallyConnected
@@ -22,6 +21,7 @@ from notears.visualize import Visualization
 from notears.orthogonality import latin_hyper, orthogonality
 from notears.log_causal import LogCausal
 from notears.vae import VAE
+import torch.nn.functional as F 
 import random
 
 class ScalableDAG_V2_1(nn.Module):
@@ -147,9 +147,9 @@ class ScalableDAG_V2_2(nn.Module):
             for m in range(self.dims[1]):
                 for i in range(d):
                     if i == j:
-                        bound = (None, None)
+                        bound = (0, 0)
                     else:
-                        bound = (None, None)
+                        bound = (0, None)
                     bounds.append(bound)
         return bounds
 
@@ -208,7 +208,7 @@ class ScalableDAG_V2_2(nn.Module):
 
 class ScalableDAG_V2_3(nn.Module):
     def __init__(self, dims, pivae_dims, d, k, batch_size, bias=True):
-        super(ScalableDAG_V2_2, self).__init__()
+        super(ScalableDAG_V2_3, self).__init__()
         assert len(dims) >= 2
         # assert dims[-1] == 1
         d = dims[0]
@@ -255,20 +255,30 @@ class ScalableDAG_V2_3(nn.Module):
         return bounds
 
     def forward(self, x):  # [n, d] -> [n, k]
-        x_forward = torch.empty((x.size()))
         x_phi = []
         for j in range(x.shape[1]):
             x_j = torch.clone(x)   
             x_j[:,j] = 0 
             x_j = self.fc1_pos(x_j) - self.fc1_neg(x_j)  # [n, d * m1]
-            # print(x.shape)
             for fc in self.fc2:
                 x_j = torch.sigmoid(x_j) # [n, d * m1]
                 x_j = fc(x_j)  # [n, m2]
-                # print(x.shape)
             x_phi.append(x_j)
-            x_forward[:,j] =  x_j[:,0]
-        return x_forward
+        x_phi = torch.stack(x_phi)
+        x_phi = x_phi.transpose(0, 1)
+
+        # feed for forward of VAE
+        print(len(self.betas))
+        y1 = torch.stack([self.betas[i](x_phi[i]) for i in range(self.batch_size)
+                            ]).flatten(1)
+        
+        beta = torch.stack([self.betas[i].weight for i in range(self.batch_size)
+                            ]).flatten(0,1)
+        beta_vae = self.vae(beta)
+        y2 = torch.stack([x_phi[i]@beta_vae[0][i] + self.betas[i].bias for i in 
+                            range(self.batch_size)])
+        print(y1.shape, y2.shape)
+        return y1, y2, beta_vae[1], beta_vae[2]
 
     def h_func(self):
         """Constrain 2-norm-squared of fc1 weights along m1 dim to be a DAG"""
@@ -314,7 +324,15 @@ def squared_loss(output, target):
     loss = 1 / n * torch.sum((output - target) ** 2)
     return loss
 
-def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3, rho, alpha, h, rho_max, X_latin, log):
+def cal_vae_loss(target, reconstructed1, reconstructed2, mean, log_var): # loss vae
+    # reconstruction loss
+    RCL = F.mse_loss(reconstructed1, target, reduction='sum') + \
+                F.mse_loss(reconstructed2, target, reduction='sum') # Loss 1 + 2 
+    # kl divergence loss
+    KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp()) # RegLoss
+    return RCL + KLD
+
+def dual_ascent_step(model, X, lambda1, lambda2, lambda3, lambda4, rho, alpha, h, rho_max, X_latin):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
     #transform to tensor X_phi, X_alpha
@@ -326,9 +344,14 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3, r
             loss = 0.0
             optimizer.zero_grad()
             #get X_hat
-            X_hat = model(X_torch)            
+            X_hat = model(X_torch)   
+
+            # y1, X_hat, z_mu, z_sd = model(X_torch)   
+
             #loss 
             loss = squared_loss(X_hat, X_torch) 
+            # vae_loss = cal_vae_loss(X_torch, y1, X_hat, z_mu, z_sd)
+
             ortho = lambda3*orthogonality(model(X_latin))
             h_val = model.h_func()
             penalty = 0.5 * rho * h_val * h_val + alpha * h_val
@@ -336,6 +359,7 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3, r
             l1_reg = lambda1 * model.fc1_l1_reg()
             
             primal_obj = loss + ortho + penalty + l2_reg + l1_reg
+            # primal_obj = loss + vae_loss + ortho + penalty + l2_reg + l1_reg
             #backwward
             primal_obj.backward()
             return primal_obj  #primal_obj
@@ -345,16 +369,26 @@ def dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3, r
             h_new = model.h_func().item()
             X_torch = torch.from_numpy(X)
             #get X_hat
-            X_hat = model(X_torch)            
+            X_hat = model(X_torch)
+            #loss
+            loss = lambda4*squared_loss(X_hat, X_torch) 
+            
+
+            # get with piVAE   
+            # y1, X_hat, z_mu, z_sd = model(X_torch)   
             #loss 
-            loss = squared_loss(X_hat, X_torch) 
+            # loss = squared_loss(X_hat, X_torch) 
+            # vae_loss = cal_vae_loss(X_torch, y1, X_hat, z_mu, z_sd)
+
             ortho = lambda3*orthogonality(model(X_latin))
             penalty = 0.5 * rho * h_new * h_new + alpha * h_new
             l2_reg = 0.5 * lambda2 * model.l2_reg()
             l1_reg = lambda1 * model.fc1_l1_reg()
             
             primal_obj = loss + ortho + penalty + l2_reg + l1_reg
-            result_dict = {'obj_func': primal_obj, 'sq_loss': loss, 'orth':ortho, 'h_func': h_new} #THE SAME KEY AS INIT IN MAIN FUNCTION
+            result_dict = {'obj_func': primal_obj, 'sq_loss': loss, 'orth':ortho, 'h_func': h_new, 'pen': penalty, 'l1': l1_reg, 'l2': l2_reg} #THE SAME KEY AS INIT IN MAIN FUNCTION
+            # primal_obj = loss + vae_loss + ortho + penalty + l2_reg + l1_reg
+            # result_dict = {'obj_func': primal_obj, 'sq_loss': loss, 'vae_loss': vae_loss, 'orth':ortho, 'h_func': h_new} #THE SAME KEY AS INIT IN MAIN FUNCTION
             
         if h_new > 0.25 * h:
             rho *= 10
@@ -369,6 +403,7 @@ def ScalableDAG_V2_nonlinear(model: nn.Module,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
                       lambda3: float = 0.,
+                      lambda4: float = 0.,
                       max_iter: int = 100,
                       h_tol: float = 1e-8,
                       rho_max: float = 1e+16,
@@ -376,14 +411,15 @@ def ScalableDAG_V2_nonlinear(model: nn.Module,
     rho, alpha, h = 1.0, 0.0, np.inf
     X_latin = latin_hyper(X, n=20)
     for _ in tqdm(range(max_iter)):
-        rho, alpha, h, result_dict = dual_ascent_step(model, X, B_true, w_threshold, lambda1, lambda2, lambda3,
-                                        rho, alpha, h, rho_max, X_latin, log)   
+        rho, alpha, h, result_dict = dual_ascent_step(model, X, lambda1, lambda2, lambda3, lambda4,
+                                        rho, alpha, h, rho_max, X_latin)   
         log.step_update(result_dict)
         num_epoch = _ + 1
         if h <= h_tol or rho >= rho_max:
             break
         
     W_est = model.fc1_to_adj()
+    print(W_est)
     W_est[np.abs(W_est) < w_threshold] = 0
     return W_est, num_epoch
 
@@ -393,57 +429,94 @@ def main():
     np.set_printoptions(precision=3)
 
     #LOGGING ----
-    lambda1 = 0.01
-    lambda2 = 0.02
-    lambda3 = 0.01
-    lambda_ = [lambda1, lambda2, lambda3]
-    name = 'test_9'
+    lambdas = []
+    # check = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
 
-    key_list = ['obj_func', 'sq_loss', 'orth', 'h_func']
-    log = LogCausal(name, lambda_, key_list)
+    # for lambda1 in [0.01]: 
+    #     for lambda2 in [0.02]: 
+    #         for lambda3 in [0.02]: 
+    #             for lambda4 in [0.03]: 
+    #                 lambdas.append([lambda1, lambda2, lambda3, lambda4])
 
-    random_numbers = [random.randint(1, 10000) for _ in range(20)]#[702,210,1536]
-    print(random_numbers)
-    for r in tqdm(random_numbers): #[2,3,5,6,9,15,19,28,2000,2001]
-        # print('Binh')
-        print("\n-----------------------------------------")
-        print('random seed:',r)
-        ut.set_random_seed(r)
+    # 0.1 0.1 0.05 0.1
 
-        #LOGGING----
-        log.random_seed_update(r)
+    max_average_tpr = 0.0 
+    min_average_tpr = 1.0
+    
+    for indx, lambda_ in enumerate([0.01, 0.02, 0.02, 0.03]): 
+        lambda1 = lambda_[0]
+        lambda2 = lambda_[1]
+        lambda3 = lambda_[2]
+        lambda4 = lambda_[3]
+        name = 'test_new' + str(indx)
 
-        n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
-        B_true = ut.simulate_dag(d, s0, graph_type)
-        # np.savetxt(f'ScalableDAG_v2/W_true_{r}.csv', B_true, delimiter=',')
+        key_list = ['obj_func', 'sq_loss', 'orth', 'h_func', 'pen', 'l1', 'l2']
+        # key_list = ['obj_func', 'sq_loss', 'vae_loss','orth', 'h_func']
+        log = LogCausal(name, lambda_, key_list)
 
-        X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-        # np.savetxt(f'ScalableDAG_v2/X_{r}.csv', X, delimiter=',')
+        random_numbers = [random.randint(1, 10000) for _ in range(3)]#[702,210,1536]
+        print(random_numbers)
+        for r in random_numbers: #[2,3,5,6,9,15,19,28,2000,2001]
+            # print('Binh')
+            print("\n-----------------------------------------")
+            print('random seed:',r)
+            ut.set_random_seed(r)
 
-        k = 3
-        # model = ScalableDAG_V2(dims=[d, 10, k], bias=True)
-        model = ScalableDAG_V2_2(dims=[d , 10, k], bias=True)
+            #LOGGING----
+            log.random_seed_update(r)
 
-        
-        W_est, num_epoch = ScalableDAG_V2_nonlinear(model, X, log, B_true, lambda1=lambda1, lambda2=lambda2, lambda3=lambda3, max_iter=50, w_threshold=0.3) #ADD LOG 
-        assert ut.is_dag(W_est)
-        acc = ut.count_accuracy(B_true, W_est != 0)
-        # np.savetxt(f'ScalableDAG_v2/W_est_{r}.csv', W_est, delimiter=',')
-        
-        print(W_est)
-        print(B_true)
-        print(acc)
+            n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
+            k = 3
+            #for v2_3------
+            hidden_dims1 = 128
+            hidden_dims2 = 64
+            z_dim = 20
+            dims = [d , 10, k]
+            batch_size = n
+            pivae_dims = [hidden_dims1, hidden_dims2, z_dim]
+            #--------
+            B_true = ut.simulate_dag(d, s0, graph_type)
+            # np.savetxt(f'ScalableDAG_v2/W_true_{r}.csv', B_true, delimiter=',')
 
-        #LOGGING-----
-        log.acc_update(acc,num_epoch) 
+            X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
+            # np.savetxt(f'ScalableDAG_v2/X_{r}.csv', X, delimiter=',')
 
-    # VISUALIZTION
-    save_path = 'ScalableDAG_v2/visualization'
-    vis = Visualization(log.log, save_path)
-    vis.visualize()
+            
+            # model = ScalableDAG_V2(dims=[d, 10, k], bias=True)
+            model = ScalableDAG_V2_2(dims=[d , 10, k], bias=True)
+            # model = ScalableDAG_V2_3(dims, pivae_dims, d, k, batch_size, bias=True )
+            
+            
+            W_est, num_epoch = ScalableDAG_V2_nonlinear(model, X, log, B_true, lambda1=lambda1, lambda2=lambda2, lambda3=lambda3, lambda4=lambda4, max_iter=50, w_threshold=0.3) #ADD LOG 
+            assert ut.is_dag(W_est)
+            acc = ut.count_accuracy(B_true, W_est != 0)
+            # np.savetxt(f'ScalableDAG_v2/W_est_{r}.csv', W_est, delimiter=',')
+            print(W_est)
+            print(B_true)
+            print(acc)
 
-    print("\n-----------------------------------------")
-    log.print_acc_average()
+
+            #LOGGING-----
+            log.acc_update(acc,num_epoch) 
+
+        # VISUALIZTION
+        save_path = 'ScalableDAG_v2/visualization'
+        vis = Visualization(log.log, save_path)
+        vis.visualize()
+
+        print("\n-----------AVERAGE SCORE---------------------")
+        log.print_acc_average()
+        if log.acc_average['tpr'] >= max_average_tpr: 
+            max_average_tpr =  log.acc_average['tpr']
+            max_lamda = lambda_
+        if log.acc_average['tpr'] <= min_average_tpr: 
+            min_average_tpr =  log.acc_average['tpr']
+            min_lamda = lambda_
+    
+    print("\n-----------MAX SCORE---------------------")
+    print(f'Max average: {max_average_tpr}, max lambda: {max_lamda}')
+    print(f'Min average: {min_average_tpr}, min lambda: {min_lamda}')
+
 
 if __name__ == '__main__':
     main()
