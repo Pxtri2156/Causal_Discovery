@@ -107,6 +107,7 @@ class ScalableDAGv3(nn.Module):
         beta_vae = self.vae(beta)
         y2 = torch.stack([last_phi_x[i]@beta_vae[0][i] + self.betas[i].bias for i in 
                             range(self.batch_size)]) # y2 = X_hat 
+        print(y1.shape, y2.shape)
         return y1, y2, beta_vae[1], beta_vae[2]
 
     def get_fc1_weight(self):
@@ -288,6 +289,8 @@ def main():
         pivae_dims = [hidden_dims1, hidden_dims2, z_dim]
         
         B_true = ut.simulate_dag(d, s0, graph_type)
+        X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
+        # np.savetxt('scalable_dag_v3/X.csv', X, delimiter=',')
         np.savetxt('../scalable_dag_v3/W_true.csv', B_true, delimiter=',')
 
         X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
@@ -298,6 +301,7 @@ def main():
         W_est, num_epoch = scalable_dag_v3(model, X, log, lambda1, lambda2, lambda3)
         # print(W_est)
         assert ut.is_dag(W_est)
+        # np.savetxt('scalable_dag_v3/W_est.csv', W_est, delimiter=',')
         np.savetxt('../scalable_dag_v3/W_est.csv', W_est, delimiter=',')
         acc = ut.count_accuracy(B_true, W_est != 0)
         log.acc_update(acc,num_epoch) 
