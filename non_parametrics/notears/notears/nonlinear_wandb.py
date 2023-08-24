@@ -6,11 +6,15 @@ sys.path.append("./")
 from notears.locally_connected import LocallyConnected
 from notears.lbfgsb_scipy import LBFGSBScipy
 from notears.trace_expm import trace_expm
+import notears.utils as ut
+
 # from torchsummary import summary
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import wandb
+import random
 import numpy as np
 import math
 from tqdm import tqdm
@@ -106,77 +110,6 @@ class NotearsMLP(nn.Module):
         return W
 
 
-class NotearsSobolev(nn.Module):
-    def __init__(self, d, k):
-        """d: num variables k: num expansion of each variable"""
-        super(NotearsSobolev, self).__init__()
-        self.d, self.k = d, k
-        self.fc1_pos = nn.Linear(d * k, d, bias=False)  # ik -> j
-        self.fc1_neg = nn.Linear(d * k, d, bias=False)
-        self.fc1_pos.weight.bounds = self._bounds()
-        self.fc1_neg.weight.bounds = self._bounds()
-        nn.init.zeros_(self.fc1_pos.weight)
-        nn.init.zeros_(self.fc1_neg.weight)
-        self.l2_reg_store = None
-
-    def _bounds(self):
-        # weight shape [j, ik]
-        bounds = []
-        for j in range(self.d):
-            for i in range(self.d):
-                for _ in range(self.k):
-                    if i == j:
-                        bound = (0, 0)
-                    else:
-                        bound = (0, None)
-                    bounds.append(bound)
-        return bounds
-
-    def sobolev_basis(self, x):  # [n, d] -> [n, dk]
-        seq = []
-        for kk in range(self.k):
-            mu = 2.0 / (2 * kk + 1) / math.pi  # sobolev basis
-            psi = mu * torch.sin(x / mu)
-            seq.append(psi)  # [n, d] * k
-        bases = torch.stack(seq, dim=2)  # [n, d, k]
-        bases = bases.view(-1, self.d * self.k)  # [n, dk]
-        return bases
-
-    def forward(self, x):  # [n, d] -> [n, d]
-        bases = self.sobolev_basis(x)  # [n, dk]
-        x = self.fc1_pos(bases) - self.fc1_neg(bases)  # [n, d]
-        self.l2_reg_store = torch.sum(x ** 2) / x.shape[0]
-        return x
-
-    def h_func(self):
-        fc1_weight = self.fc1_pos.weight - self.fc1_neg.weight  # [j, ik]
-        fc1_weight = fc1_weight.view(self.d, self.d, self.k)  # [j, i, k]
-        A = torch.sum(fc1_weight * fc1_weight, dim=2).t()  # [i, j]
-        h = trace_expm(A) - d  # (Zheng et al. 2018)
-        # A different formulation, slightly faster at the cost of numerical stability
-        # M = torch.eye(self.d) + A / self.d  # (Yu et al. 2019)
-        # E = torch.matrix_power(M, self.d - 1)
-        # h = (E.t() * M).sum() - self.d
-        return h
-
-    def l2_reg(self):
-        reg = self.l2_reg_store
-        return reg
-
-    def fc1_l1_reg(self):
-        reg = torch.sum(self.fc1_pos.weight + self.fc1_neg.weight)
-        return reg
-
-    @torch.no_grad()
-    def fc1_to_adj(self) -> np.ndarray:
-        fc1_weight = self.fc1_pos.weight - self.fc1_neg.weight  # [j, ik]
-        fc1_weight = fc1_weight.view(self.d, self.d, self.k)  # [j, i, k]
-        A = torch.sum(fc1_weight * fc1_weight, dim=2).t()  # [i, j]
-        W = torch.sqrt(A)  # [i, j]
-        W = W.cpu().detach().numpy()  # [i, j]
-        return W
-
-
 def squared_loss(output, target):
     n = target.shape[0]
     loss = 0.5 / n * torch.sum((output - target) ** 2)
@@ -186,13 +119,10 @@ def squared_loss(output, target):
 def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
-    # for param in model.parameters():
-    #     print(type(param), param.size())
-    # # input("Hi")
     optimizer = LBFGSBScipy(model.parameters())
-    # optimizer = optim.LBFGS(model.parameters())    
-    # optimizer = bo_optimoptim.core.scipy_minimize(model.parameters())  
     X_torch = torch.from_numpy(X)  
+    
+    loss = 0
     while rho < rho_max:
         def closure():
             optimizer.zero_grad()
@@ -210,16 +140,30 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
         
         with torch.no_grad():
             h_new = model.h_func().item()
+            X_hat = model(X_torch)
+            # print('X hat:', X_hat.shape)
+            loss = squared_loss(X_hat, X_torch)
+            penalty = 0.5 * rho * h_new * h_new + alpha * h_new
+            l2_reg = 0.5 * lambda2 * model.l2_reg()
+            l1_reg = lambda1 * model.fc1_l1_reg()
+            primal_obj = loss + penalty + l2_reg + l1_reg
+            result_dict = {'obj_func': primal_obj, 
+                           'sq_loss': loss, 
+                           'penalty': penalty,
+                            'l1': l1_reg,
+                            'l2': l2_reg,
+                            'h_func': h_new} #THE SAME KEY AS INIT IN MAIN FUNCTION
+
         if h_new > 0.25 * h:
             rho *= 10
         else:
             break
     alpha += rho * h_new
-    return rho, alpha, h_new
+    return rho, alpha, h_new, result_dict
 
 
 def notears_nonlinear(model: nn.Module,
-                      X: np.ndarray,
+                      X: np.ndarray, wandb,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
                       max_iter: int = 100,
@@ -229,8 +173,9 @@ def notears_nonlinear(model: nn.Module,
     rho, alpha, h = 1.0, 0.0, np.inf
     for _ in range(max_iter):
         print(f"{'='*30} Iter {_} {'='*30}")
-        rho, alpha, h = dual_ascent_step(model, X, lambda1, lambda2,
+        rho, alpha, h, result_dict = dual_ascent_step(model, X, wandb, lambda1, lambda2,
                                          rho, alpha, h, rho_max)
+        wandb.log(result_dict)
         if h <= h_tol or rho >= rho_max:
             break
     W_est = model.fc1_to_adj()
@@ -239,26 +184,41 @@ def notears_nonlinear(model: nn.Module,
 
 
 def main():
+    # Log 
     torch.set_default_dtype(torch.double)
     np.set_printoptions(precision=3)
+    for r in range(1, 5):
+        ut.set_random_seed(r)
 
-    import notears.utils as ut
-    # for r in tqdm([2,3,5,6,9,15,19,28,2000,2001,123]): #[2,3,5,6,9,15,19,28,2000,2001]
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project="Causal Discovery",
+            
+            # track hyperparameters and run metadata
+            config={
+            "name": "Non parametric" + str(r),
+            "dataset": "Synthetic",
+            "lambda1": 0.01,
+            "lambda2": 0.01,
+            }
+        )
+    
+        n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
+        B_true = ut.simulate_dag(d, s0, graph_type)
+        np.savetxt('W_true.csv', B_true, delimiter=',')
 
-    n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
-    B_true = ut.simulate_dag(d, s0, graph_type)
-    np.savetxt('W_true.csv', B_true, delimiter=',')
+        X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
+        np.savetxt('X.csv', X, delimiter=',')
 
-    X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-    np.savetxt('X.csv', X, delimiter=',')
+        model = NotearsMLP(dims=[d, 10, 1], bias=True)
+        W_est = notears_nonlinear(model, X, wandb, lambda1=0.01, lambda2=0.01)
+        print(W_est)
+        assert ut.is_dag(W_est)
+        np.savetxt('W_est.csv', W_est, delimiter=',')
+        acc = ut.count_accuracy(B_true, W_est != 0)
+        print(acc)
+        wandb.finish()
 
-    model = NotearsMLP(dims=[d, 10, 1], bias=True)
-    W_est = notears_nonlinear(model, X, lambda1=0.01, lambda2=0.01)
-    print(W_est)
-    assert ut.is_dag(W_est)
-    np.savetxt('W_est.csv', W_est, delimiter=',')
-    acc = ut.count_accuracy(B_true, W_est != 0)
-    print(acc)
 
 
 if __name__ == '__main__':
