@@ -11,6 +11,7 @@ from notears.trace_expm import trace_expm
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import botorch.optim as bo_optim
 import numpy as np
 import math
 from tqdm import tqdm
@@ -191,7 +192,8 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
     # # input("Hi")
     optimizer = LBFGSBScipy(model.parameters())
     # optimizer = optim.LBFGS(model.parameters())    
-    X_torch = torch.from_numpy(X)
+    # optimizer = bo_optimoptim.core.scipy_minimize(model.parameters())  
+    X_torch = torch.from_numpy(X)  
     while rho < rho_max:
         def closure():
             optimizer.zero_grad()
@@ -206,6 +208,7 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
             primal_obj.backward()
             return primal_obj
         optimizer.step(closure)  # NOTE: updates model in-place
+        
         with torch.no_grad():
             h_new = model.h_func().item()
         if h_new > 0.25 * h:

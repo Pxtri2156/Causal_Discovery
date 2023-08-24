@@ -1,42 +1,37 @@
+
 import  sys
 from tqdm import tqdm
 
 sys.path.append("./")
-sys.path.append("../")
 sys.path.append("/workspace/causal_discovery/non_parametrics/notears/notears")
 
 from notears.locally_connected import LocallyConnected
 from notears.lbfgsb_scipy import LBFGSBScipy
 from notears.trace_expm import trace_expm
+from torchsummary import summary
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F 
 import numpy as np
 import math
 
 import notears.utils as ut
-from notears.visualize import Visualization
-from notears.orthogonality import latin_hyper, orthogonality
-from notears.vae import VAE
-from notears.visualize import Visualization
 from notears.log_causal import LogCausal
+from notears.visualize import Visualization
 
+# from notears.log import Logging
 import random
 
-   
-class ScalableDAGv3(nn.Module):
+class ScalableDAG_v1(nn.Module):
     
-    def __init__(self, dims, pivae_dims, d, k, batch_size, bias=True ):
-        super(ScalableDAGv3, self).__init__()
+    def __init__(self, dims, d, k, bias=True):
+        super(ScalableDAG_v1, self).__init__()
         assert len(dims) >= 2
         assert dims[-1] == 1
         d = dims[0]
         self.d = d
         self.dims = dims
         self.K = k
-        self.pivae_dims = pivae_dims
-        self.batch_size = batch_size
         # fc1: variable splitting for l1
         self.fc1_pos = []
         self.fc1_neg = []
@@ -56,15 +51,12 @@ class ScalableDAGv3(nn.Module):
             layers.append(LocallyConnected(self.K, dims[l + 1], dims[l + 2], bias=bias)) # input [d, 10, 1]
             
         self.fc2 = nn.ModuleList(layers)
-              
-        # Define pivae layers
-        self.betas = nn.ModuleList()
-        for _ in range(self.batch_size):
-            self.betas.append(nn.Linear(k, 1)) 
-                   
-        self.vae = VAE(input_dim=k, hidden_dim1=pivae_dims[0], 
-                        hidden_dim2=pivae_dims[1], latent_dim=pivae_dims[2])
-    
+        self.fc3 = [] 
+        for _ in range(d):
+            self.fc3.append(nn.Linear(self.K, 1,  bias=False))
+        self.fc3 = nn.ModuleList(self.fc3)        
+        # summary(self.fc2, (200,10, 1))
+
     def _bounds(self): #DAG
         bounds = []
         for j in range(self.d):
@@ -82,8 +74,8 @@ class ScalableDAGv3(nn.Module):
         return bounds
 
     def forward(self, x):  # [n, d] -> [n, d]
-        last_phi_x = []
-        for j, (fc1_pos_iter, fc1_neg_iter) in enumerate(zip(self.fc1_pos, self.fc1_neg)):
+        last_x = torch.empty((x.size()))
+        for j, (fc1_pos_iter, fc1_neg_iter, fc3_iter) in enumerate(zip(self.fc1_pos, self.fc1_neg, self.fc3)):
             x_phi = torch.clone(x)   
             x_phi[:,j] = 0  #[n, d]
             x_phi = fc1_pos_iter(x_phi) - fc1_neg_iter(x_phi)  # [n, m1]
@@ -94,21 +86,10 @@ class ScalableDAGv3(nn.Module):
                 # print('fc2 weight: ', fc.weight.size())
             # print(x_phi.shape)
             x_phi = x_phi.squeeze(dim=2)  # [n, k]
-            last_phi_x.append(x_phi)
-            
-        last_phi_x = torch.stack(last_phi_x) # [d, n, k]
-        last_phi_x = last_phi_x.transpose(0, 1) # [n, d, k]
-
-        # feed for forward of VAE
-        y1 = torch.stack([self.betas[i](last_phi_x[i]) for i in range(self.batch_size)
-                            ]).flatten(1)
-        beta = torch.stack([self.betas[i].weight for i in range(self.batch_size)
-                            ]).flatten(0,1)
-        beta_vae = self.vae(beta)
-        y2 = torch.stack([last_phi_x[i]@beta_vae[0][i] + self.betas[i].bias for i in 
-                            range(self.batch_size)]) # y2 = X_hat 
-        print(y1.shape, y2.shape)
-        return y1, y2, beta_vae[1], beta_vae[2]
+            x_phi = fc3_iter(x_phi) # [n, 1]
+            # print('x of forward: ', x.shape)
+            last_x[:,j] = x_phi[:, 0]
+        return last_x
 
     def get_fc1_weight(self):
         fc1_weight = torch.empty((self.d*self.dims[1], self.d))
@@ -147,8 +128,8 @@ class ScalableDAGv3(nn.Module):
         reg += torch.sum(fc1_weight ** 2)
         for fc in self.fc2:
             reg += torch.sum(fc.weight ** 2)
+        # l2 of alpha ??????????
         return reg
-    
 
     def fc1_l1_reg(self):
         """Take l1 norm of fc1 weight"""
@@ -170,16 +151,7 @@ def squared_loss(output, target):
     loss = 0.5 / n * torch.sum((output - target) ** 2) # Request norm 2
     return loss
 
-def cal_vae_loss(target, reconstructed1, reconstructed2, mean, log_var): # loss vae
-    # reconstruction loss
-    RCL = F.mse_loss(reconstructed1, target, reduction='sum') + \
-                F.mse_loss(reconstructed2, target, reduction='sum') # Loss 1 + 2 
-    # kl divergence loss
-    KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp()) # RegLoss
-    return RCL + KLD
-
-
-def dual_ascent_step(model, X, lambda1, lambda2, lambda3, rho, alpha, h, rho_max):
+def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
     # for param in model.parameters():
@@ -193,16 +165,14 @@ def dual_ascent_step(model, X, lambda1, lambda2, lambda3, rho, alpha, h, rho_max
     while rho < rho_max:
         def closure():
             optimizer.zero_grad()
-            # X_hat = model(X_torch)
-            y1, y2, z_mu, z_sd = model(X_torch)
+            X_hat = model(X_torch)
             # print("X_hat: ", X_hat.shape)
-            loss = squared_loss(y2, X_torch)
-            vae_loss = cal_vae_loss(X_torch, y1, y2, z_mu, z_sd)
+            loss = squared_loss(X_hat, X_torch)
             h_val = model.h_func()
             penalty = 0.5 * rho * h_val * h_val + alpha * h_val
             l2_reg = 0.5 * lambda2 * model.l2_reg()
             l1_reg = lambda1 * model.fc1_l1_reg()
-            primal_obj = loss + penalty + l2_reg + l1_reg + vae_loss*lambda3
+            primal_obj = loss + penalty + l2_reg + l1_reg
             primal_obj.backward()
             # print('primal_obj: ', primal_obj.item())
             return primal_obj
@@ -210,22 +180,20 @@ def dual_ascent_step(model, X, lambda1, lambda2, lambda3, rho, alpha, h, rho_max
         optimizer.step(closure)  # NOTE: updates model in-place
         with torch.no_grad():
             h_new = model.h_func().item()
-            y1, y2, z_mu, z_sd = model(X_torch)
+            X_hat = model(X_torch)
             # print("X_hat: ", X_hat.shape)
-            loss = squared_loss(y2, X_torch)
-            vae_loss = cal_vae_loss(X_torch, y1, y2, z_mu, z_sd)
+            loss = squared_loss(X_hat, X_torch)
             h_val = model.h_func()
             penalty = 0.5 * rho * h_val * h_val + alpha * h_val
             l2_reg = 0.5 * lambda2 * model.l2_reg()
             l1_reg = lambda1 * model.fc1_l1_reg()
-            primal_obj = loss + penalty + l2_reg + l1_reg + vae_loss*lambda3
+            primal_obj = loss + penalty + l2_reg + l1_reg 
             result_dict = {'obj_func': primal_obj, 
                             'sq_loss': loss, 
-                            'pi_vae_loss':vae_loss, 
+                            'penalty': penalty,
                             'h_func': h_new, 
                             'l2_reg': l2_reg,
-                            'l1_reg': l1_reg} #THE SAME KEY AS INIT IN MAIN FUNCTION
-
+                            'l1_reg': l1_reg}
         if h_new > 0.25 * h:
             rho *= 10
         else:
@@ -233,12 +201,10 @@ def dual_ascent_step(model, X, lambda1, lambda2, lambda3, rho, alpha, h, rho_max
     alpha += rho * h_new
     return rho, alpha, h_new, result_dict
 
-
-def scalable_dag_v3(model: nn.Module,
+def scalable_dag_v1(model: nn.Module,
                       X: np.ndarray, log,
                       lambda1: float = 0.,
                       lambda2: float = 0.,
-                      lambda3: float = 0.,
                       max_iter: int = 100,
                       h_tol: float = 1e-8,
                       rho_max: float = 1e+16,
@@ -246,14 +212,18 @@ def scalable_dag_v3(model: nn.Module,
     rho, alpha, h = 1.0, 0.0, np.inf
     for _ in tqdm(range(max_iter)):
         print(f"{'='*30} Iter {_} {'='*30}")
-        rho, alpha, h, result_dict = dual_ascent_step(model, X, lambda1, lambda2, lambda3,
+        rho, alpha, h, result_dict = dual_ascent_step(model, X, lambda1, lambda2,
                                          rho, alpha, h, rho_max)
         log.step_update(result_dict)
-        num_epoch = _ + 1        
+        num_epoch = _ + 1
+
+        
         if h <= h_tol or rho >= rho_max:
             print(h)
             print(rho)
+            print("hú")
             break
+        
         
     W_est = model.fc1_to_adj() # convert the matrix
     W_est[np.abs(W_est) < w_threshold] = 0
@@ -266,55 +236,42 @@ def main():
 
     lambda1 = 0.01
     lambda2 = 0.01
-    lambda3 = 0.005
-    lambda_ = [lambda1, lambda2, lambda3]
-    name = 'debug'
- 
-    key_list = ['obj_func', 'sq_loss', 'pi_vae_loss', \
+    lambda_ = [lambda1, lambda2]
+    #LOGGING ----
+    name = 'Scalable_v1'
+    
+    
+    key_list = ['obj_func', 'sq_loss', 'penalty', \
                 'h_func', 'l2_reg', 'l1_reg' ]
     log = LogCausal(name, lambda_, key_list)
     random_numbers = [random.randint(1, 10000) for _ in range(20)]#[702,210,1536]
 
-    for r in tqdm(random_numbers): 
-    #LOGGING----
+    for r in tqdm(random_numbers):    
         ut.set_random_seed(r)
         log.random_seed_update(r)
-
-        n, d, k, s0, graph_type, sem_type = 200, 5, 6, 9, 'ER', 'mim'
-        hidden_dims1 = 128
-        hidden_dims2 = 64
-        z_dim = 20
-        dims = [d, 10, 8, 1]
-        batch_size = n
-        pivae_dims = [hidden_dims1, hidden_dims2, z_dim]
         
+        n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
         B_true = ut.simulate_dag(d, s0, graph_type)
-        X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-        # np.savetxt('scalable_dag_v3/X.csv', X, delimiter=',')
-        np.savetxt('../scalable_dag_v3/W_true.csv', B_true, delimiter=',')
+        np.savetxt('ScalableDAG_v1/W_true.csv', B_true, delimiter=',')
 
         X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-        np.savetxt('../scalable_dag_v3/X.csv', X, delimiter=',')
-        print("[INFO]: Done gen and save dataset!!!")
-        model = ScalableDAGv3(dims, pivae_dims, d, k, batch_size, bias=True )
+        np.savetxt('ScalableDAG_v1/X.csv', X, delimiter=',')
 
-        W_est, num_epoch = scalable_dag_v3(model, X, log, lambda1, lambda2, lambda3)
+        model = ScalableDAG_v1(dims=[d, 10, 8, 1], d=5, k=6, bias=True)
+
+        W_est, num_epoch = scalable_dag_v1(model, X, log, lambda1, lambda2)
         # print(W_est)
         assert ut.is_dag(W_est)
-        # np.savetxt('scalable_dag_v3/W_est.csv', W_est, delimiter=',')
-        np.savetxt('../scalable_dag_v3/W_est.csv', W_est, delimiter=',')
+        np.savetxt('ScalableDAG_v1/W_est.csv', W_est, delimiter=',')
         acc = ut.count_accuracy(B_true, W_est != 0)
         log.acc_update(acc,num_epoch) 
-        break
-        # print(acc)
+        
     # VISUALIZTION
-    save_path = '../scalable_dag_v3/visualization'
+    save_path = 'scalable_dag_v3/visualization'
     vis = Visualization(log.log, save_path)
     vis.visualize()
     print("\n" + "-"*40)
     log.print_acc_average()
-    # log_path = 'scalable_dag_v3/log.json'
-    # log.save(log_path)
-    
+
 if __name__ == '__main__':
     main()
