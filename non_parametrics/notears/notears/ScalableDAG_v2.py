@@ -341,7 +341,6 @@ def dual_ascent_step(model, X, lambda1, lambda2, lambda3, lambda4, rho, alpha, h
 
     while rho < rho_max:
         def closure():
-            loss = 0.0
             optimizer.zero_grad()
             #get X_hat
             X_hat = model(X_torch)   
