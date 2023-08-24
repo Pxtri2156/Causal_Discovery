@@ -1,6 +1,7 @@
 import torch
 import scipy.optimize as sopt
-
+import jax.scipy.optimize as jax_sopt 
+import jax
 
 class LBFGSBScipy(torch.optim.Optimizer):
     """Wrap L-BFGS-B algorithm, using scipy routines.
@@ -18,11 +19,10 @@ class LBFGSBScipy(torch.optim.Optimizer):
                              " (parameter groups)")
         self.device = device
         self._params = self.param_groups[0]['params']
-        self._params = [torch.tensor(e).to(device) for e in self._params]
-
-            
+        # self._params = [torch.tensor(e).to(device) for e in self._params]
+         
         self._numel = sum([p.numel() for p in self._params])
-        self._numel  = torch.tensor( self._numel ).to(device)
+        # self._numel  = torch.tensor( self._numel ).to(device)
 
     def _gather_flat_grad(self):
         views = []
@@ -92,15 +92,26 @@ class LBFGSBScipy(torch.optim.Optimizer):
 
         initial_params = self._gather_flat_params()
         initial_params = initial_params.cpu().detach().numpy()
-
         bounds = self._gather_flat_bounds()
-        # Magic
-        sol = sopt.minimize(wrapped_closure,
+        print('initial_params: ', type(initial_params))
+        print('bounds: ', type(bounds))
+
+        # # Magic
+        # sol = sopt.minimize(wrapped_closure,
+        #                     initial_params,
+        #                     method='L-BFGS-B',
+        #                     jac=True,
+        #                     bounds=bounds)
+
+
+        initial_params = jax.numpy(initial_params)
+        bounds = jax.numpy(bounds)
+        sol = jax_sopt.minimize(wrapped_closure,
                             initial_params,
                             method='L-BFGS-B',
                             jac=True,
-                            bounds=bounds)
-
+                            bounds=bounds)        
+        
         final_params = torch.from_numpy(sol.x)
         final_params = final_params.to(torch.get_default_dtype())
         self._distribute_flat_params(final_params)
