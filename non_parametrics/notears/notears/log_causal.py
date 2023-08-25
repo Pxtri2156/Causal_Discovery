@@ -1,4 +1,4 @@
-
+import pickle
 class LogCausal():
     def __init__(self,name, lamda, key_list):
         # super(Logging, self).__init__()
@@ -56,6 +56,10 @@ class LogCausal():
         self.acc_average['shd'] /= len(self.acc)    
         print(f'average: | {self.acc_average}|')
         
+    def save(self, path):
+        with open(path, "wb") as file:
+            pickle.dump(self.log, file)
+    
 
 
 
