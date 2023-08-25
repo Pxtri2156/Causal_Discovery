@@ -167,7 +167,7 @@ def orthogonality(X):
     for i in range(X.shape[0]): 
         for j in range(i+1,X.shape[0]):
             if (i!=j): 
-                ortho += float(abs(X[[i],:] @ X[[j],:].transpose(0,1)))
+                ortho += float(abs(torch.dot(X[i,:],X[j,:])))
                 # torch.dot
                 # print(X[[i],:].shape)
                 # print(X[[j],:].shape)

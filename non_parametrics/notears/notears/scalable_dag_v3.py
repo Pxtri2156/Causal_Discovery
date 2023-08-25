@@ -100,6 +100,7 @@ class ScalableDAGv3(nn.Module):
         beta_vae = self.vae(beta)
         y2 = torch.stack([last_phi_x[i]@beta_vae[0][i] + self.betas[i].bias for i in 
                             range(self.batch_size)]) # y2 = X_hat 
+        print(y1.shape, y2.shape)
         return y1, y2, beta_vae[1], beta_vae[2]
 
     def get_fc1_weight(self):

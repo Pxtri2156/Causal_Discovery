@@ -19,7 +19,7 @@ class Visualization():
         
         # plt.text(0, 0, 'Parabola $Y = x^2$', fontsize = 22)
 
-        figure, axis = plt.subplots(len(self.random_seed) + 1, figsize=(15, 100))
+        figure, axis = plt.subplots(len(self.random_seed) + 1, figsize=(15, 30))
         #score
         fdr_scores = list(self.score['fdr'].values())
         tpr_scores = list(self.score['tpr'].values())
@@ -30,13 +30,13 @@ class Visualization():
         unit = 0.5
         flat_scores = [item for sublist in all_scores for item in sublist]
         y_tick_positions = np.arange(0, max(flat_scores) + unit, unit)
-
+        # print(y_tick_positions)
         axis[0].boxplot(all_scores, labels=['FDR', 'TPR', 'FPR', 'SHD', 'NNZ'])
         axis[0].set_xlabel('Metrics')
         axis[0].set_ylabel('Scores')
-        axis[0].set_title(f'lamda_dag={self.lamda[0]}, lamda_l2={self.lamda[1]}, lamda_ortho={self.lamda[2]}')
+        axis[0].set_title(f'lamda_dag={self.lamda[0]}, lamda_l2={self.lamda[1]}, lamda_ortho={self.lamda[2]}, lamda_sq_loss={self.lamda[3]}')
         axis[0].set_xticklabels(['FDR', 'TPR', 'FPR', 'SHD', 'NNZ'])
-        axis[0].set_yticklabels(y_tick_positions)
+        # axis[0].set_yticklabels(y_tick_positions)
 
 
         #color
