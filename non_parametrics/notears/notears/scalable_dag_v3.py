@@ -287,7 +287,6 @@ def main():
         
         B_true = ut.simulate_dag(d, s0, graph_type)
         np.savetxt(f'{save_foler}/W_true.csv', B_true, delimiter=',')
-
         X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
         np.savetxt(f'{save_foler}/X.csv', X, delimiter=',')
 
