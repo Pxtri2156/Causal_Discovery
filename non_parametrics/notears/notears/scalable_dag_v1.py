@@ -1,5 +1,5 @@
 import  sys
-sys.path.append("./")
+sys.path.append("../")
 sys.path.append("/workspace/causal_discovery/non_parametrics/notears/notears")
 
 from tqdm import tqdm
@@ -15,7 +15,6 @@ from notears.locally_connected import LocallyConnected
 from notears.lbfgsb_scipy import LBFGSBScipy
 from notears.trace_expm import trace_expm
 import notears.utils as ut
-
 
 
 class ScalableDAG_v1(nn.Module):
@@ -109,12 +108,8 @@ class ScalableDAG_v1(nn.Module):
         """Constrain 2-norm-squared of fc1 weights along m1 dim to be a DAG"""
         fc1_weight = self.get_fc1_weight()  # # [d*m1, d]
         fc1_weight = fc1_weight.view(self.d, -1, self.d)  # [d, m1, d]
-        # print("h fc1_weight: ", fc1_weight.shape)
         A = torch.sum(fc1_weight * fc1_weight, dim=1).t()  # [d, d]
-        # print("A: ", A)
-        # print('trace_expm(A):', trace_expm(A))
         h = trace_expm(A) - self.d  # (Zheng et al. 2018)
-        # print("h_func: ", h.item())
         return h
 
     def l2_reg(self):
@@ -124,7 +119,6 @@ class ScalableDAG_v1(nn.Module):
         reg += torch.sum(fc1_weight ** 2)
         for fc in self.fc2:
             reg += torch.sum(fc.weight ** 2)
-        # l2 of alpha ??????????
         return reg
 
     def fc1_l1_reg(self):
@@ -152,6 +146,7 @@ def dual_ascent_step(model, X, wandb, lambda1, lambda2, rho, alpha, h, rho_max):
     h_new = None
     optimizer = LBFGSBScipy(model.parameters())
     X_torch = torch.from_numpy(X)
+    
     while rho < rho_max:
         def closure():
             optimizer.zero_grad()
@@ -175,24 +170,14 @@ def dual_ascent_step(model, X, wandb, lambda1, lambda2, rho, alpha, h, rho_max):
         optimizer.step(closure)  # NOTE: updates model in-place
         with torch.no_grad():
             h_new = model.h_func().item()
-            # X_hat = model(X_torch)
-            # loss = squared_loss(X_hat, X_torch)
-            # h_val = model.h_func()
-            # penalty = 0.5 * rho * h_val * h_val + alpha * h_val
-            # l2_reg = 0.5 * lambda2 * model.l2_reg()
-            # l1_reg = lambda1 * model.fc1_l1_reg()
-            # primal_obj = loss + penalty + l2_reg + l1_reg 
-            # result_dict = {'obj_func': primal_obj, 
-            #                 'sq_loss': loss, 
-            #                 'penalty': penalty,
-            #                 'h_func': h_new, 
-            #                 'l2_reg': l2_reg,
-            #                 'l1_reg': l1_reg}
         if h_new > 0.25 * h:
             rho *= 10
         else:
             break
+        wandb.log({'rho': rho})  
+        
     alpha += rho * h_new
+    wandb.log({'alpha': alpha})  
     return rho, alpha, h_new
 
 def scalable_dag_v1(model: nn.Module,
@@ -208,7 +193,6 @@ def scalable_dag_v1(model: nn.Module,
         print(f"{'='*30} Iter {_} {'='*30}")
         rho, alpha, h = dual_ascent_step(model, X, wandb, lambda1, lambda2,
                                          rho, alpha, h, rho_max)
-        # wandb.log(result_dict)
         if h <= h_tol or rho >= rho_max:
             print(h)
             print(rho)
@@ -221,12 +205,12 @@ def scalable_dag_v1(model: nn.Module,
 def main():
     torch.set_default_dtype(torch.double)
     np.set_printoptions(precision=3)
-    root_path = 'results/scalable_dag_v1'
+    root_path = '../results/scalable_dag_v1'
     lambda1 = 0.01
     lambda2 = 0.01
     #LOGGING ----    
 
-    for r in tqdm(range(10)): 
+    for r in tqdm(range(2, 3)): 
         ut.set_random_seed(r)
         name_seed = 'seed_' + str(r)
         save_foler = root_path + f"/{name_seed}"
@@ -251,6 +235,18 @@ def main():
         np.savetxt(f'{save_foler}/X.csv', X, delimiter=',')
 
         model = ScalableDAG_v1(dims=[d, 10, 8, 1], d=5, k=6, bias=True)
+        sum_param = 0 
+        # for name, param in model.named_parameters():
+        #     print(f"Parameter name: {name}")
+        #     print(param)
+        #     print("=" * 20)
+
+        #     # sum_param += param.size 
+        # input("Stop")
+        # params = sum([np.prod(p.size()) for _, p in model.named_parameters()])
+        params = sum(p.numel() for p in model.parameters())
+        print("params: ", params)
+        input("Stop")
         W_est = scalable_dag_v1(model, X, wandb, lambda1, lambda2)
         # print(W_est)
         assert ut.is_dag(W_est)
@@ -259,6 +255,7 @@ def main():
         print("acc: ", acc)
         wandb.log({'acc': acc})
         wandb.finish()
+        break
 
 
 if __name__ == '__main__':
