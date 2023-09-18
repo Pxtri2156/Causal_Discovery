@@ -1,0 +1,3 @@
+Loss của vae không ổn định (dao động rất nhiều) 
+Chart of square loss cũng không ổn định, giống pattern với pivae loss 
+==> Giá trị dự đoán có vấn đề => mô hình Pivae đang có vấn đề 

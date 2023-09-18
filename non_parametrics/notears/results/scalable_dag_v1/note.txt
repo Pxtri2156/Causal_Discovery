@@ -1,0 +1,2 @@
+khi h_func có giá trị khởi tạo qua lớn => học ẩu => về 0 quá nhanh.
+h_func của nonliner luôn có giá trị ổn đinh. 

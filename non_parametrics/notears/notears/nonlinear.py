@@ -1,7 +1,7 @@
 
 import  sys
 
-sys.path.append("./")
+sys.path.append("../")
 
 from notears.locally_connected import LocallyConnected
 from notears.lbfgsb_scipy import LBFGSBScipy
@@ -207,7 +207,9 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
             primal_obj.backward()
             return primal_obj
         optimizer.step(closure)  # NOTE: updates model in-place
-        
+        for name, param in model.named_parameters():
+            print(f"name {name} param: {param}")
+        input("Stop")
         with torch.no_grad():
             h_new = model.h_func().item()
         if h_new > 0.25 * h:
@@ -247,16 +249,16 @@ def main():
 
     n, d, s0, graph_type, sem_type = 200, 5, 9, 'ER', 'mim'
     B_true = ut.simulate_dag(d, s0, graph_type)
-    np.savetxt('W_true.csv', B_true, delimiter=',')
+    np.savetxt('../W_true.csv', B_true, delimiter=',')
 
     X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-    np.savetxt('X.csv', X, delimiter=',')
+    np.savetxt('../X.csv', X, delimiter=',')
 
     model = NotearsMLP(dims=[d, 10, 1], bias=True)
     W_est = notears_nonlinear(model, X, lambda1=0.01, lambda2=0.01)
     print(W_est)
     assert ut.is_dag(W_est)
-    np.savetxt('W_est.csv', W_est, delimiter=',')
+    np.savetxt('../W_est.csv', W_est, delimiter=',')
     acc = ut.count_accuracy(B_true, W_est != 0)
     print(acc)
 
