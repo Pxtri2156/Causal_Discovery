@@ -59,6 +59,7 @@ class LogCausal():
     def save(self, path):
         with open(path, "wb") as file:
             pickle.dump(self.log, file)
+        print('save done')
     
 
 
