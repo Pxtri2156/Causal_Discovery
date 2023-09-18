@@ -19,7 +19,7 @@ class Visualization():
         
         # plt.text(0, 0, 'Parabola $Y = x^2$', fontsize = 22)
 
-        figure, axis = plt.subplots(len(self.random_seed) + 1, figsize=(15, 30))
+        figure, axis = plt.subplots(len(self.random_seed) + 1, figsize=(15, 100))
         #score
         fdr_scores = list(self.score['fdr'].values())
         tpr_scores = list(self.score['tpr'].values())
