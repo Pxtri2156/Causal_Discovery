@@ -1,5 +1,5 @@
 import  sys
-sys.path.append("./")
+sys.path.append("../")
 sys.path.append("/workspace/causal_discovery/non_parametrics/notears/notears")
 
 from tqdm import tqdm
@@ -100,7 +100,7 @@ class ScalableDAGv3(nn.Module):
         beta_vae = self.vae(beta)
         y2 = torch.stack([last_phi_x[i]@beta_vae[0][i] + self.betas[i].bias for i in 
                             range(self.batch_size)]) # y2 = X_hat 
-        print(y1.shape, y2.shape)
+        # print(y1.shape, y2.shape)
         return y1, y2, beta_vae[1], beta_vae[2]
 
     def get_fc1_weight(self):
@@ -123,14 +123,10 @@ class ScalableDAGv3(nn.Module):
     
     def h_func(self):
         """Constrain 2-norm-squared of fc1 weights along m1 dim to be a DAG"""
-        fc1_weight = self.get_fc1_weight()  # # [d*m1, d]
+        fc1_weight = self.get_fc1_weight()  # [d*m1, d]
         fc1_weight = fc1_weight.view(self.d, -1, self.d)  # [d, m1, d]
-        # print("h fc1_weight: ", fc1_weight.shape)
-        A = torch.sum(fc1_weight * fc1_weight, dim=1).t()  # [d, d]
-        # print("A: ", A)
-        # print('trace_expm(A):', trace_expm(A))
-        h = trace_expm(A) - self.d  # (Zheng et al. 2018)
-        # print("h_func: ", h.item())
+        A = torch.sum(fc1_weight * fc1_weight, dim=1).t()  # [d, d] 
+        h = trace_expm(A) - self.d  #(Zheng et al. 2018)
         return h
 
     def l2_reg(self):
@@ -142,7 +138,6 @@ class ScalableDAGv3(nn.Module):
             reg += torch.sum(fc.weight ** 2)
         return reg
     
-
     def fc1_l1_reg(self):
         """Take l1 norm of fc1 weight"""
         reg = torch.sum(self.get_sum_fc1_weight())
@@ -171,7 +166,6 @@ def cal_vae_loss(target, reconstructed1, reconstructed2, mean, log_var): # loss 
     KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp()) # RegLoss
     return RCL + KLD
 
-
 def dual_ascent_step(model, X, wandb, lambda1, lambda2, lambda3, rho, alpha, h, rho_max):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
@@ -182,7 +176,7 @@ def dual_ascent_step(model, X, wandb, lambda1, lambda2, lambda3, rho, alpha, h, 
             optimizer.zero_grad()
             # X_hat = model(X_torch)
             y1, y2, z_mu, z_sd = model(X_torch)
-            loss = squared_loss(y2, X_torch)
+            loss = squared_loss(y2, X_torch)*0.25
             vae_loss = cal_vae_loss(X_torch, y1, y2, z_mu, z_sd)*lambda3
             h_val = model.h_func()
             penalty = 0.5 * rho * h_val * h_val + alpha * h_val
@@ -203,24 +197,18 @@ def dual_ascent_step(model, X, wandb, lambda1, lambda2, lambda3, rho, alpha, h, 
         optimizer.step(closure)  # NOTE: updates model in-place
         with torch.no_grad():
             h_new = model.h_func().item()
-            # y1, y2, z_mu, z_sd = model(X_torch)
-            # # print("X_hat: ", X_hat.shape)
-            # loss = squared_loss(y2, X_torch)
-            # vae_loss = cal_vae_loss(X_torch, y1, y2, z_mu, z_sd)*lambda3
-            # h_val = model.h_func()
-            # penalty = 0.5 * rho * h_val * h_val + alpha * h_val
-            # l2_reg = 0.5 * lambda2 * model.l2_reg()
-            # l1_reg = lambda1 * model.fc1_l1_reg()
-            # primal_obj = loss + penalty + l2_reg + l1_reg + vae_loss
  #THE SAME KEY AS INIT IN MAIN FUNCTION
 
         if h_new > 0.25 * h:
             rho *= 10
         else:
             break
+        wandb.log({'rho': rho})  
+        
+    alpha += rho * h_new
+    wandb.log({'alpha': alpha})  
     alpha += rho * h_new
     return rho, alpha, h_new
-
 
 def scalable_dag_v3(model: nn.Module,
                       X: np.ndarray, wandb,
@@ -236,6 +224,9 @@ def scalable_dag_v3(model: nn.Module,
         print(f"{'='*30} Iter {_} {'='*30}")
         rho, alpha, h = dual_ascent_step(model, X, wandb, lambda1, lambda2, lambda3,
                                          rho, alpha, h, rho_max)
+        wandb.log({'rho': rho,
+                   'alpha': alpha})
+        
         if h <= h_tol or rho >= rho_max:
             print(h)
             print(rho)
@@ -245,17 +236,15 @@ def scalable_dag_v3(model: nn.Module,
     W_est[np.abs(W_est) < w_threshold] = 0
     return W_est
 
-
 def main():
     torch.set_default_dtype(torch.double)
     np.set_printoptions(precision=3)
-    root_path = 'results/scalable_dag_v3'
-
+    root_path = '../results/scalable_dag_v3'
     lambda1 = 0.01
     lambda2 = 0.01
     lambda3 = 0.00025
- 
-    for r in tqdm(range(10)): 
+
+    for r in tqdm(range(21)): 
     #LOGGING----
         ut.set_random_seed(r)
         name_seed = 'seed_' + str(r)
@@ -295,12 +284,12 @@ def main():
         # print(W_est)
         assert ut.is_dag(W_est)
         np.savetxt(f'{save_foler}/W_est.csv', W_est, delimiter=',')
-
         acc = ut.count_accuracy(B_true, W_est != 0)
         print("acc: ", acc)
         wandb.log({'acc': acc})
         # break
         wandb.finish()
+        break
     
 if __name__ == '__main__':
     main()
